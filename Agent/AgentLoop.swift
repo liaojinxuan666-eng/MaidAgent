@@ -20,7 +20,6 @@ final class AgentLoop {
             let toolsSchema = ToolRegistry.shared.apiSchema()
             
             var fullContent = ""
-            var toolCallInfo: (name: String, args: String, id: String)? = nil
             
             // 流式接收
             for try await token in APIClient.shared.chatStream(messages: apiMessages, tools: toolsSchema) {
