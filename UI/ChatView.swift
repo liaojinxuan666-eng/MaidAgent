@@ -1,15 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct ChatView: View {
+struct)
+ ChatView: View {
     var projectId: UUID? = nil
     var sessionId: UUID? = nil
-    var projectContext: String? = nil
+    var projectContext: String?                                    = nil
 
     @StateObject private var store = ProjectStore.shared
     
-    @State private var messages: [ChatMessage] = []
-    @State private var inputText: String = ""
+    @ .clipState private varShape messages: [ChatMessage] = []
+    @State(C private var inputText: String = ""
     @State private var isLoading = false
     @State private var showSidebar = false
     @State private var showAttachmentSheet = false
@@ -20,139 +21,143 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if messages.isEmpty && streamingMessage == nil {
-                        VStack(spacing: 16) {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 60))
-                                .foregroundColor(.blue.opacity(0.8))
-                                .padding(.top, 120)
-                            Text("今天要在 \(projectContext ?? "沙箱") 里写点什么？")
-                                .font(.title3).foregroundColor(.primary)
-                            Text("或者让我帮你重构、修 Bug、看 GitHub 源码")
-                                .font(.caption).foregroundColor(.gray)
-                        }
-                        .padding(.top, 40)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 16) {
-                            // 消息分组渲染
-                            ForEach(groupedMessages) { group in
-                                switch group {
-                                case .single(let msg):
-                                    MessageBubble(message: msg, onRegenerate: {
-                                        regenerateLastResponse()
-                                    }).id(msg.id)
-                                case .thinking(let msgs):
-                                    ThinkingBlockView(messages: msgs).id(group.id)
+        // ✨ 修复：加回 NavigationView，让顶部导航栏（汉堡菜单）显示出来
+        NavigationView {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        if messages.isEmpty && streamingMessage == nil {
+                            VStack(spacing: 16) {
+                                Image(systemName: "terminal")
+                                    .font(.system(size: 60))
+                                    .foregroundColor(.blue.opacity(0.8))
+                                    .padding(.top, 120)
+                                Text("今天要在 \(projectContext ?? "沙箱") 里写点什么？")
+                                    .font(.title3).foregroundColor(.primary)
+                                Text("或者让我帮你重构、修 Bug、看 GitHub 源码")
+                                    .font(.caption).foregroundColor(.gray)
+                            }
+                            .padding(.top, 40)
+                        } else {
+                            LazyVStack(alignment: .leading, spacing: 16) {
+                                // 消息分组渲染
+                                ForEach(groupedMessages) { group in
+                                    switch group {
+                                    case .single(let msg):
+                                        MessageBubble(message: msg, onRegenerate: {
+                                            regenerateLastResponse()
+                                        }).id(msg.id)
+                                    case .thinking(let msgs):
+                                        ThinkingBlockView(messages: msgs).id(group.id)
+                                    }
+                                }
+                                
+                                if let streamMsg = streamingMessage {
+                                    MessageBubble(message: streamMsg).id(streamMsg.id)
+                                } else if isLoading {
+                                    HStack(spacing: 8) {
+                                        ProgressView().scaleEffect(0.8)
+                                        Text("思考中...").font(.caption).foregroundColor(.gray)
+                                        Spacer()
+                                    }.padding(.horizontal)
                                 }
                             }
-                            
-                            if let streamMsg = streamingMessage {
-                                MessageBubble(message: streamMsg).id(streamMsg.id)
-                            } else if isLoading {
-                                HStack(spacing: 8) {
-                                    ProgressView().scaleEffect(0.8)
-                                    Text("思考中...").font(.caption).foregroundColor(.gray)
-                                    Spacer()
-                                }.padding(.horizontal)
+                            .padding()
+                        }
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: messages.count) { _ in
+                        if let last = messages.last {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
+                    }
+                    .onChange(of: streamingMessage?.content) { _ in
+                        if let streamId = streamingMessage?.id {
+                            DispatchQueue.main.async {
+                                withAnimation { proxy.scrollTo(streamId, anchor: .bottom) }
                             }
                         }
-                        .padding()
                     }
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: messages.count) { _ in
-                    if let last = messages.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                    }
-                }
-                .onChange(of: streamingMessage?.content) { _ in
-                    if let streamId = streamingMessage?.id {
-                        DispatchQueue.main.async {
-                            withAnimation { proxy.scrollTo(streamId, anchor: .bottom) }
-                        }
-                    }
-                }
-            }
-            
-            // 底部输入区
-            VStack(spacing: 0) {
-                Divider().background(Color.gray.opacity(0.2))
-                HStack(alignment: .bottom, spacing: 12) {
-                    Button(action: { showAttachmentSheet = true }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.primary.opacity(0.8))
-                            .frame(width: 38, height: 38)
-                            .background(Color(UIColor.tertiarySystemFill))
-                            .clipShape(Circle())
-                    }.padding(.bottom, 2)
-                    
-                    HStack(alignment: .bottom, spacing: 8) {
-                        TextField("输入指令...", text: $inputText, axis: .vertical)
-                            .lineLimit(1...6)
-                            .padding(.vertical, 10).padding(.leading, 8)
-                            .focused($isInputFocused)
-                        
-                        Button(action: {
-                            let text = inputText
-                            inputText = ""
-                            isInputFocused = false
-                            Task { await sendMessage(text) }
-                        }) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 30, height: 30)
-                                .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blue)
+                
+                // 底部输入区
+                VStack(spacing: 0) {
+                    Divider().background(Color.gray.opacity(0.2))
+                    HStack(alignment: .bottom, spacing: 12) {
+                        Button(action: { showAttachmentSheet = true }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.primary.opacity(0.8))
+                                .frame(width: 38, height: 38)
+                                .background(Color(UIColor.tertiarySystemFill))
                                 .clipShape(Circle())
+                        }.padding(.bottom, 2)
+                        
+                        HStack(alignment: .bottom, spacing: 8) {
+                            TextField("输入指令...", text: $inputText, axis: .vertical)
+                                .lineLimit(1...6)
+                                .padding(.vertical, 10).padding(.leading, 8)
+                                .focused($isInputFocused)
+                            
+                            Button(action: {
+                                let text = inputText
+                                inputText = ""
+                                isInputFocused = false
+                                Task { await sendMessage(text) }
+                            }) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 30, height: 30)
+                                    .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blueircle())
+                            }
+                            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                            .padding(.trailing, 4).padding(.bottom, 4)
                         }
-                        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                        .padding(.trailing, 4).padding(.bottom, 4)
+                        .padding(.horizontal, 6)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
                     }
-                    .padding(.horizontal, 6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
-                }
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                Text("内容由 AI 生成").font(.system(size: 10)).foregroundColor(.gray).padding(.bottom, 8)
-            }.background(Color.black)
-        }
-        .background(Color.black.ignoresSafeArea())
-        .navigationTitle(projectContext ?? "PocketCode")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: { showSidebar.toggle() }) {
-                    Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
-                }
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    Text("内容由 AI 生成").font(.system(size: 10)).foregroundColor(.gray).padding(.bottom, 8)
+                }.background(Color.black)
             }
-            ToolbarItem(placement: .principal) {
-                Menu {
-                    Button("DeepSeek Chat") {}
-                    Button("GLM-4") {}
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("PocketCode AI").font(.subheadline.weight(.semibold))
-                        Image(systemName: "chevron.down").font(.caption2)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle(projectContext ?? "PocketCode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { showSidebar.toggle() }) {
+                        Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(Color(UIColor.tertiarySystemFill))
-                    .clipShape(Capsule())
                 }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    if let pid = projectId { _ = store.createSession(projectId: pid, title: "新会话") }
-                    else { messages.removeAll() }
-                }) {
-                    Image(systemName: "square.and.pencil").font(.system(size: 18))
+                ToolbarItem(placement: .principal) {
+                    Menu {
+                        Button("DeepSeek Chat") {}
+                        Button("GLM-4") {}
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("PocketCode AI").font(.subheadline.weight(.semibold))
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color(UIColor.tertiarySystemFill))
+                        .clipShape(Capsule())
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        if let pid = projectId { _ = store.createSession(projectId: pid, title: "新会话") }
+                        else { messages.removeAll() }
+                    }) {
+                        Image(systemName: "square.and.pencil").font(.system(size: 18))
+                    }
                 }
             }
         }
+        .navigationViewStyle(.stack)
+        // ✨ 侧边栏（包含“项目”入口）
         .sheet(isPresented: $showSidebar) {
             NavigationView {
                 List {
