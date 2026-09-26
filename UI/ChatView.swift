@@ -2,181 +2,218 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ChatView: View {
+    var projectContext: String? = nil
+    
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var isLoading = false
     @State private var showSidebar = false
     
-    // 文件上传状态
+    // Sheet 状态
+    @State private var showAttachmentSheet = false
     @State private var showFileImporter = false
     @State private var fileImportError: String? = nil
+    
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // 消息列表
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        if messages.isEmpty {
-                            VStack(spacing: 12) {
-                                Image(systemName: "message")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.gray)
-                                Text("暂无会话记录")
-                                    .foregroundColor(.gray)
-                            }
-                            .padding(.top, 120)
-                        } else {
-                            LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(messages) { msg in
-                                    MessageBubble(message: msg)
-                                        .id(msg.id)
-                                }
-                                if isLoading {
-                                    HStack {
-                                        ProgressView()
-                                        Text("思考中...").font(.caption).foregroundColor(.gray)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal)
-                                }
-                            }
-                            .padding()
-                        }
-                    }
-                    .onChange(of: messages.count) { _ in
-                        if let last = messages.last {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
-                    }
-                }
-                
-                // 现代化底部输入区
-                VStack(spacing: 0) {
-                    Divider().background(Color.gray.opacity(0.2))
-                    
-                    HStack(alignment: .bottom, spacing: 10) {
-                        // + 号附件按钮（圆形灰底）
-                        Button(action: { showFileImporter = true }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.primary.opacity(0.7))
-                                .frame(width: 34, height: 34)
-                                .background(Color(UIColor.tertiarySystemFill))
-                                .clipShape(Circle())
-                        }
-                        .padding(.bottom, 2)
-                        
-                        // 输入框（胶囊 + 毛玻璃）
-                        HStack(alignment: .bottom, spacing: 6) {
-                            TextField("输入指令...", text: $inputText, axis: .vertical)
-                                .lineLimit(1...6)
-                                .padding(.vertical, 8)
-                                .padding(.leading, 6)
+        VStack(spacing: 0) {
+            // MARK: - 消息列表 / 空状态
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if messages.isEmpty {
+                        VStack(spacing: 16) {
+                            // 仿 Kimi 空状态
+                            Image(systemName: "terminal")
+                                .font(.system(size: 60))
+                                .foregroundColor(.blue.opacity(0.8))
+                                .padding(.top, 120)
+                            
+                            Text("今天要在 \(projectContext ?? "沙箱") 里写点什么？")
+                                .font(.title3)
                                 .foregroundColor(.primary)
                             
-                            // 发送按钮（胶囊内嵌圆圈）
-                            Button(action: {
-                                let text = inputText
-                                inputText = ""
-                                Task { await sendMessage(text) }
-                            }) {
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 28, height: 28)
-                                    .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blue)
-                                    .clipShape(Circle())
-                            }
-                            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                            .padding(.trailing, 4)
-                            .padding(.bottom, 3)
+                            Text("或者让我帮你重构、修 Bug、看 GitHub 源码")
+                                .font(.caption)
+                                .foregroundColor(.gray)
                         }
-                        .padding(.horizontal, 6)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
-                        )
+                        .padding(.top, 40)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(messages) { msg in
+                                MessageBubble(message: msg).id(msg.id)
+                            }
+                            if isLoading {
+                                HStack {
+                                    ProgressView()
+                                    Text("思考中...").font(.caption).foregroundColor(.gray)
+                                    Spacer()
+                                }.padding(.horizontal)
+                            }
+                        }
+                        .padding()
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: messages.count) { _ in
+                    if let last = messages.last {
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                }
+            }
+            
+            // MARK: - 底部输入区（对标 Kimi）
+            VStack(spacing: 0) {
+                Divider().background(Color.gray.opacity(0.2))
+                
+                HStack(alignment: .bottom, spacing: 12) {
+                    // + 号按钮，改为弹出底边抽屉
+                    Button(action: { showAttachmentSheet = true }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.primary.opacity(0.8))
+                            .frame(width: 38, height: 38)
+                            .background(Color(UIColor.tertiarySystemFill))
+                            .clipShape(Circle())
+                    }
+                    .padding(.bottom, 2)
+                    
+                    // 胶囊输入框
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("输入指令...", text: $inputText, axis: .vertical)
+                            .lineLimit(1...6)
+                            .padding(.vertical, 10)
+                            .padding(.leading, 8)
+                            .foregroundColor(.primary)
+                            .focused($isInputFocused)
+                        
+                        // 发送按钮
+                        Button(action: {
+                            let text = inputText
+                            inputText = ""
+                            isInputFocused = false
+                            Task { await sendMessage(text) }
+                        }) {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 30, height: 30)
+                                .background(inputText.isEmpty ? Color.gray.opacity(0.4) : Color.blue)
+                                .clipShape(Circle())
+                        }
+                        .disabled(inputText.isEmpty || isLoading)
+                        .padding(.trailing, 4)
+                        .padding(.bottom, 4)
+                    }
+                    .padding(.horizontal, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                
+                // 底部小字（仿 Kimi）
+                Text("内容由 AI 生成")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 8)
+            }
+            .background(Color.black)
+        }
+        .background(Color.black.ignoresSafeArea())
+        .navigationTitle(projectContext ?? "PocketCode")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // 仿 Kimi 顶部导航
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { showSidebar.toggle() }) {
+                    Image(systemName: "line.3.horizontal") // 汉堡菜单
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.primary)
+                }
+            }
+            ToolbarItem(placement: .principal) {
+                // 模型选择器（胶囊状）
+                Menu {
+                    Button("DeepSeek Chat") {}
+                    Button("GLM-4") {}
+                    Button("Qwen-Coder") {}
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("PocketCode AI")
+                            .font(.subheadline.weight(.semibold))
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                }
-                .background(Color.black)
-            }
-            .background(Color.black.ignoresSafeArea())
-            .navigationTitle("PocketCode")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { showSidebar.toggle() }) {
-                        Image(systemName: "sidebar.left").foregroundColor(.primary)
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { messages.removeAll() }) {
-                        Image(systemName: "square.and.pencil").foregroundColor(.primary)
-                    }
+                    .padding(.vertical, 6)
+                    .background(Color(UIColor.tertiarySystemFill))
+                    .clipShape(Capsule())
                 }
             }
-            // 历史会话侧边栏
-            .sheet(isPresented: $showSidebar) {
-                NavigationView {
-                    List {
-                        Text("历史会话列表（后续接入本地持久化）")
-                            .foregroundColor(.gray)
-                    }
-                    .navigationTitle("会话历史")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("完成") { showSidebar = false }
-                        }
-                    }
-                }
-                .preferredColorScheme(.dark)
-            }
-            // 文件选择器
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.plainText, .sourceCode, .data],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { return }
-                    do {
-                        let content = try String(contentsOf: url, encoding: .utf8)
-                        // 把文件内容拼接到输入框，方便你直接发送给 AI 分析
-                        inputText += "\n```\n\(content)\n```\n"
-                    } catch {
-                        fileImportError = "读取文件失败: \(error.localizedDescription)"
-                    }
-                case .failure(let error):
-                    fileImportError = "选择文件失败: \(error.localizedDescription)"
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { messages.removeAll() }) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18))
                 }
             }
-            // 文件导入错误提示
-            .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
-                Button("好") { fileImportError = nil }
-            }, message: {
-                Text(fileImportError ?? "")
-            })
         }
+        .sheet(isPresented: $showSidebar) {
+            // 侧边栏（后续可以替换为你的历史会话列表）
+            NavigationView {
+                List {
+                    Text("历史会话记录").foregroundColor(.gray)
+                }
+                .navigationTitle("会话历史")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("完成") { showSidebar = false }
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+        }
+        .sheet(isPresented: $showAttachmentSheet) {
+            AttachmentSheet(
+                isPresented: $showAttachmentSheet,
+                onSelectLocalFile: { showFileImporter = true },
+                onSelectGitHub: { inputText += " [GitHub 仓库链接] " },
+                onSelectWeb: { inputText += " [网页链接] " }
+            )
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.plainText, .sourceCode, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                do {
+                    let content = try String(contentsOf: url, encoding: .utf8)
+                    inputText += "\n```\n\(content)\n```\n"
+                } catch {
+                    fileImportError = "读取文件失败: \(error.localizedDescription)"
+                }
+            case .failure(let error):
+                fileImportError = "选择文件失败: \(error.localizedDescription)"
+            }
+        }
+        .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
+            Button("好") { fileImportError = nil }
+        }, message: {
+            Text(fileImportError ?? "")
+        })
     }
     
-    // MARK: - 调用真正的 AgentLoop
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
-        
         await MainActor.run {
             messages.append(ChatMessage(role: "user", content: text))
             isLoading = true
         }
-        
         do {
-            // 调用真正的 Agent 循环
             let updatedMessages = try await AgentLoop.shared.run(initialMessages: messages)
             await MainActor.run {
                 self.messages = updatedMessages
@@ -186,31 +223,6 @@ struct ChatView: View {
             await MainActor.run {
                 messages.append(ChatMessage(role: "assistant", content: "错误: \(error.localizedDescription)"))
                 isLoading = false
-            }
-        }
-    }
-}
-
-// 消息气泡组件
-struct MessageBubble: View {
-    let message: ChatMessage
-    
-    var body: some View {
-        HStack {
-            if message.role == "user" {
-                Spacer()
-                Text(message.content)
-                    .padding(12)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            } else {
-                Text(message.content)
-                    .padding(12)
-                    .background(Color(UIColor.secondarySystemFill))
-                    .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Spacer()
             }
         }
     }
