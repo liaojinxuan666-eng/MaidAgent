@@ -2,15 +2,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ChatView: View {
- ChatView: View {
     var projectId: UUID? = nil
     var sessionId: UUID? = nil
-    var projectContext: String?                                    = nil
+    var projectContext: String? = nil
 
     @StateObject private var store = ProjectStore.shared
     
-    @ .clipState private varShape messages: [ChatMessage] = []
-    @State(C private var inputText: String = ""
+    @State private var messages: [ChatMessage] = []
+    @State private var inputText: String = ""
     @State private var isLoading = false
     @State private var showSidebar = false
     @State private var showAttachmentSheet = false
@@ -21,7 +20,6 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        // ✨ 修复：加回 NavigationView，让顶部导航栏（汉堡菜单）显示出来
         NavigationView {
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
@@ -109,7 +107,8 @@ struct ChatView: View {
                                     .font(.system(size: 14, weight: .bold))
                                     .foregroundColor(.white)
                                     .frame(width: 30, height: 30)
-                                    .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blueircle())
+                                    .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blue)
+                                    .clipShape(Circle())
                             }
                             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
                             .padding(.trailing, 4).padding(.bottom, 4)
@@ -157,7 +156,7 @@ struct ChatView: View {
             }
         }
         .navigationViewStyle(.stack)
-        // ✨ 侧边栏（包含“项目”入口）
+        // 侧边栏（包含“项目”入口）
         .sheet(isPresented: $showSidebar) {
             NavigationView {
                 List {
