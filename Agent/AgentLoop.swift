@@ -34,7 +34,7 @@ final class AgentLoop {
                 }
             }
             
-            // 如果 AI 要调用工具
+            // 如果 AI 要调用工具（标记为 thinking 类型）
             if !receivedToolCalls.isEmpty {
                 apiMessages.append(["role": "assistant", "content": fullContent, "tool_calls": receivedToolCalls])
                 for call in receivedToolCalls {
@@ -46,12 +46,13 @@ final class AgentLoop {
                     let argsData = argsString.data(using: .utf8) ?? Data()
                     let args = (try? JSONSerialization.jsonObject(with: argsData) as? [String: Any]) ?? [:]
                     
-                    messages.append(ChatMessage(role: "assistant", content: "", type: "tool_call", toolName: toolName, toolArgs: argsString))
+                    // ✨ 重点：这里将 type 改为 "thinking"
+                    messages.append(ChatMessage(role: "assistant", content: "", type: "thinking", toolName: toolName, toolArgs: argsString))
                     
                     let result = (try? await ToolRegistry.shared.execute(name: toolName, arguments: args)) ?? "工具执行失败"
                     apiMessages.append(["role": "tool", "tool_call_id": toolCallId, "content": result])
                 }
-                continue // 工具执行完后，让 AI 再跑一轮
+                continue
             }
             
             if !fullContent.isEmpty {
