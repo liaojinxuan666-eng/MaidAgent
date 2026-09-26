@@ -2,18 +2,24 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ChatView: View {
-    var projectContext: String? = nil
+    // 项目与会话 ID（如果是从项目里进来的，这两个参数会传入）
+    var projectId: UUID? = nil
+    var sessionId: UUID? = nil
+    var projectContext: String? = nil  // 保留，用于顶部显示项目名
+
+    @StateObject private var store = ProjectStore.shared
     
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var isLoading = false
     @State private var showSidebar = false
     
-    // Sheet 状态
+    // 附件与 Sheet 状态
     @State private var showAttachmentSheet = false
     @State private var showFileImporter = false
     @State private var fileImportError: String? = nil
     
+    // ⌨️ 键盘焦点控制（修复键盘收不下去的 Bug）
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -54,6 +60,7 @@ struct ChatView: View {
                         .padding()
                     }
                 }
+                // 下拉收起键盘
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
@@ -62,12 +69,12 @@ struct ChatView: View {
                 }
             }
             
-            // MARK: - 底部输入区（对标 Kimi）
+            // MARK: - 底部输入区（仿 Kimi）
             VStack(spacing: 0) {
                 Divider().background(Color.gray.opacity(0.2))
                 
                 HStack(alignment: .bottom, spacing: 12) {
-                    // + 号按钮，改为弹出底边抽屉
+                    // + 号按钮，弹出底边抽屉
                     Button(action: { showAttachmentSheet = true }) {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .bold))
@@ -78,7 +85,7 @@ struct ChatView: View {
                     }
                     .padding(.bottom, 2)
                     
-                    // 胶囊输入框
+                    // 胶囊输入框 + 毛玻璃
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("输入指令...", text: $inputText, axis: .vertical)
                             .lineLimit(1...6)
@@ -91,17 +98,17 @@ struct ChatView: View {
                         Button(action: {
                             let text = inputText
                             inputText = ""
-                            isInputFocused = false
+                            isInputFocused = false // 发送后收起键盘
                             Task { await sendMessage(text) }
                         }) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(.white)
                                 .frame(width: 30, height: 30)
-                                .background(inputText.isEmpty ? Color.gray.opacity(0.4) : Color.blue)
+                                .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blue)
                                 .clipShape(Circle())
                         }
-                        .disabled(inputText.isEmpty || isLoading)
+                        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
                         .padding(.trailing, 4)
                         .padding(.bottom, 4)
                     }
@@ -125,10 +132,10 @@ struct ChatView: View {
         .navigationTitle(projectContext ?? "PocketCode")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // 仿 Kimi 顶部导航
+            // 顶部导航栏
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: { showSidebar.toggle() }) {
-                    Image(systemName: "line.3.horizontal") // 汉堡菜单
+                    Image(systemName: "line.3.horizontal")
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(.primary)
                 }
@@ -153,17 +160,32 @@ struct ChatView: View {
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { messages.removeAll() }) {
+                Button(action: {
+                    // 如果在项目里，新建会话
+                    if let pid = projectId {
+                        _ = store.createSession(projectId: pid, title: "新会话")
+                    } else {
+                        messages.removeAll()
+                    }
+                }) {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 18))
                 }
             }
         }
         .sheet(isPresented: $showSidebar) {
-            // 侧边栏（后续可以替换为你的历史会话列表）
+            // 侧边栏（历史会话）
             NavigationView {
                 List {
-                    Text("历史会话记录").foregroundColor(.gray)
+                    if let pid = projectId, let project = store.getProject(pid) {
+                        ForEach(project.sessions) { session in
+                            NavigationLink(destination: ChatView(projectId: pid, sessionId: session.id, projectContext: project.name)) {
+                                Text(session.title)
+                            }
+                        }
+                    } else {
+                        Text("暂无历史会话").foregroundColor(.gray)
+                    }
                 }
                 .navigationTitle("会话历史")
                 .toolbar {
@@ -205,24 +227,71 @@ struct ChatView: View {
         }, message: {
             Text(fileImportError ?? "")
         })
+        .onAppear {
+            loadMessagesFromStore()
+        }
     }
     
+    // MARK: - 数据持久化逻辑
+    private func loadMessagesFromStore() {
+        guard let pid = projectId, let sid = sessionId,
+              let session = store.getSession(projectId: pid, sessionId: sid) else { return }
+        messages = session.messages
+    }
+    
+    private func saveMessagesToStore() {
+        guard let pid = projectId, let sid = sessionId else { return }
+        store.updateSessionMessages(projectId: pid, sessionId: sid, messages: messages)
+    }
+    
+    // MARK: - 发送消息（调用真正的 AgentLoop）
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
+        
         await MainActor.run {
             messages.append(ChatMessage(role: "user", content: text))
             isLoading = true
+            saveMessagesToStore() // 立刻保存用户消息
         }
+        
         do {
+            // 调用 Agent 循环
             let updatedMessages = try await AgentLoop.shared.run(initialMessages: messages)
             await MainActor.run {
                 self.messages = updatedMessages
                 isLoading = false
+                saveMessagesToStore() // AI 回复后保存
             }
         } catch {
             await MainActor.run {
                 messages.append(ChatMessage(role: "assistant", content: "错误: \(error.localizedDescription)"))
                 isLoading = false
+                saveMessagesToStore()
+            }
+        }
+    }
+}
+
+// MARK: - 消息气泡组件
+struct MessageBubble: View {
+    let message: ChatMessage
+    
+    var body: some View {
+        HStack {
+            if message.role == "user" {
+                Spacer()
+                Text(message.content)
+                    .padding(12)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                Text(message.content)
+                    .padding(12)
+                    .background(Color(UIColor.secondarySystemFill))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Spacer()
             }
         }
     }
