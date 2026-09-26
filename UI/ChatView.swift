@@ -361,7 +361,7 @@ struct MessageContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(parseMarkdown(content)) { block in
                 if block.type == .code {
-                    CodeBlockView(code: block.content, language: block.language)
+                    CodeBlockView(code: block.content, language: block.language ?? "code")
                 } else {
                     Text(block.content)
                         .font(.body)
