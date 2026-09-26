@@ -204,7 +204,7 @@ struct ChatView: View {
                 do {
                     let content = try String(contentsOf: url, encoding: .utf8)
                     let vfsPath = "uploads/\(url.lastPathComponent)"
-                    try VirtualFileSystem.shared.writeFile(vfsPath, content: content)
+                    try VirtualFileSystem.shared.writeFileText(vfsPath, text: content)
                     inputText += "【我上传了文件：\(vfsPath)，请读取并分析】"
                 } catch { fileImportError = "读取文件失败: \(error.localizedDescription)" }
             case .failure(let error): fileImportError = "选择文件失败: \(error.localizedDescription)"
