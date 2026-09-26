@@ -46,7 +46,9 @@ struct ChatView: View {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             // 历史消息
                             ForEach(messages) { msg in
-                                MessageBubble(message: msg).id(msg.id)
+                                MessageBubble(message: msg, onRegenerate: {
+                                    regenerateLastResponse()
+                                }).id(msg.id)
                             }
                             
                             // 流式消息（独立渲染）
@@ -302,52 +304,111 @@ struct ChatView: View {
             saveMessagesToStore()
         }
     }
+    
+    // MARK: - 重新生成最后一条 AI 回复
+    @MainActor
+    private func regenerateLastResponse() {
+        // 1. 找到最后一条用户消息的内容
+        guard let lastUserMsg = messages.last(where: { $0.role == "user" }) else { return }
+        
+        // 2. 移除最后一条 AI 消息（如果有）
+        if messages.last?.role == "assistant" {
+            messages.removeLast()
+        }
+        
+        // 3. 移除最后一条用户消息（因为 sendMessage 会重新加进来）
+        if let lastIndex = messages.lastIndex(where: { $0.role == "user" }) {
+            messages.remove(at: lastIndex)
+        }
+        
+        // 4. 重新发送
+        Task { await sendMessage(lastUserMsg.content) }
+    }
 }
 
 // MARK: - 消息气泡
 struct MessageBubble: View {
     let message: ChatMessage
+    var onRegenerate: (() -> Void)? = nil // 重新生成的回调
     
     var body: some View {
-        HStack {
-            if message.role == "user" {
-                Spacer()
-                Text(message.content)
-                    .padding(12)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .textSelection(.enabled)
-            } else if message.type == "tool_call" {
-                // 工具调用卡片
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "wrench.and.screwdriver.fill")
-                            .font(.system(size: 12)).foregroundColor(.blue)
-                        Text("调用工具: \(message.toolName ?? "未知")")
-                            .font(.system(size: 13, weight: .medium)).foregroundColor(.blue)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                if message.role == "user" {
+                    Spacer()
+                    Text(message.content)
+                        .padding(12)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .textSelection(.enabled)
+                } else if message.type == "tool_call" {
+                    // 工具调用卡片
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wrench.and.screwdriver.fill")
+                                .font(.system(size: 12)).foregroundColor(.blue)
+                            Text("调用工具: \(message.toolName ?? "未知")")
+                                .font(.system(size: 13, weight: .medium)).foregroundColor(.blue)
+                        }
+                        if let args = message.toolArgs, !args.isEmpty {
+                            Text(args)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.gray)
+                                .lineLimit(3)
+                                .padding(6)
+                                .background(Color.black.opacity(0.3))
+                                .cornerRadius(6)
+                        }
                     }
-                    if let args = message.toolArgs, !args.isEmpty {
-                        Text(args)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .lineLimit(3)
-                            .padding(6)
-                            .background(Color.black.opacity(0.3))
-                            .cornerRadius(6)
-                    }
+                    .padding(10)
+                    .background(Color(UIColor.tertiarySystemFill))
+                    .cornerRadius(12)
+                    Spacer()
+                } else {
+                    // AI 文本消息：解析 Markdown
+                    MessageContentView(content: message.content)
+                        .padding(12)
+                        .background(Color(UIColor.secondarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    Spacer()
                 }
-                .padding(10)
-                .background(Color(UIColor.tertiarySystemFill))
-                .cornerRadius(12)
-                Spacer()
-            } else {
-                // AI 消息：解析 Markdown
-                MessageContentView(content: message.content)
-                    .padding(12)
-                    .background(Color(UIColor.secondarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Spacer()
+            }
+            
+            // ✨ 模仿 DeepSeek 底部操作栏（仅对 AI 的文本消息显示）
+            if message.role == "assistant" && message.type == "text" && !message.content.isEmpty {
+                HStack(spacing: 18) {
+                    // 复制按钮
+                    Button(action: {
+                        UIPasteboard.general.string = message.content
+                    }) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                    }
+                    
+                    // 重新生成按钮
+                    if let onRegenerate = onRegenerate {
+                        Button(action: {
+                            onRegenerate()
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    // 分享按钮（使用 iOS 16+ 的原生 ShareLink）
+                    ShareLink(item: message.content) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.leading, 12) // 与气泡左侧对齐
+                .padding(.top, 2)
             }
         }
     }
@@ -466,7 +527,7 @@ struct CodeBlockView: View {
             
             Divider().background(Color.gray.opacity(0.3))
             
-            // 代码内容区（水平滚动支持长代码）
+            // 代码内容区
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(size: 13, design: .monospaced))
