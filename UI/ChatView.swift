@@ -37,7 +37,7 @@ struct ChatView: View {
                         .padding(.top, 40)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 16) {
-                            // ✨ 核心：将消息分组，连续的工具调用会被打包成一个思考块
+                            // 消息分组渲染
                             ForEach(groupedMessages) { group in
                                 switch group {
                                 case .single(let msg):
@@ -65,7 +65,7 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        withAnimation { proxy..scrollTo(last.id, anchor: .bottom) }
                     }
                 }
                 .onChange(of: streamingMessage?.content) { _ in
@@ -86,7 +86,7 @@ struct ChatView: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.primary.opacity(0.8))
                             .frame(width: 38, height: 38)
-                            .background(Color(UIColor.tertiarySystemFill))
+                            .background(Color(UIColortertiarySystemFill))
                             .clipShape(Circle())
                     }.padding(.bottom, 2)
                     
@@ -195,7 +195,7 @@ struct ChatView: View {
         .onAppear { loadMessagesFromStore() }
     }
     
-    // MARK: - 消息分组逻辑（核心）
+    // MARK: - 消息分组逻辑
     enum MessageGroup: Identifiable {
         case single(ChatMessage)
         case thinking([ChatMessage])
@@ -297,13 +297,10 @@ struct ThinkingBlockView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // 头部：点击展开/折叠
             Button(action: { withAnimation { isExpanded.toggle() } }) {
                 HStack(spacing: 6) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 13))
-                    Text("已深度思考 (\(messages.count) 步)")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "brain.head.profile").font(.system(size: 13))
+                    Text("已深度思考 (\(messages.count) 步)").font(.system(size: 13, weight: .medium))
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .bold))
@@ -314,20 +311,15 @@ struct ThinkingBlockView: View {
             }
             .buttonStyle(.plain)
             
-            // 展开后的工具步骤
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(messages) { msg in
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "wrench.and.screwdriver.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.blue)
-                                .padding(.top, 2)
-                            
+                                .font(.system(size: 10)).foregroundColor(.blue).padding(.top, 2)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("调用工具: \(msg.toolName ?? "未知")")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.gray)
+                                    .font(.system(size: 12, weight: .medium)).foregroundColor(.gray)
                                 if let args = msg.toolArgs, !args.isEmpty {
                                     Text(args)
                                         .font(.system(size: 11, design: .monospaced))
@@ -342,10 +334,7 @@ struct ThinkingBlockView: View {
                     }
                 }
                 .padding(.leading, 12)
-                .overlay(
-                    Rectangle().frame(width: 1).foregroundColor(.gray.opacity(0.3)),
-                    alignment: .leading
-                )
+                .overlay(Rectangle().frame(width: 1).foregroundColor(.gray.opacity(0.3)), alignment: .leading)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -355,7 +344,7 @@ struct ThinkingBlockView: View {
     }
 }
 
-// MARK: - 消息气泡
+// MARK: - 消息气泡（加入原生长按菜单，彻底解决复制问题）
 struct MessageBubble: View {
     let message: ChatMessage
     var onRegenerate: (() -> Void)? = nil
@@ -395,6 +384,17 @@ struct MessageBubble: View {
                     }
                     Spacer()
                 }.padding(.leading, 12).padding(.top, 4)
+            }
+        }
+        // ✨ 新增：原生长按菜单（图二那种长按弹出复制/分享）
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = message.content
+            } label: {
+                Label("复制全部", systemImage: "doc.on.doc")
+            }
+            ShareLink(item: message.content) {
+                Label("分享", systemImage: "square.and.arrow.up")
             }
         }
     }
@@ -474,8 +474,7 @@ struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(language.lowercased())
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.gray)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundColor(.gray)
                 if !isClosed { ProgressView().scaleEffect(0.5).padding(.leading, 4) }
                 Spacer()
                 Button(action: {
@@ -489,15 +488,12 @@ struct CodeBlockView: View {
                     }.font(.system(size: 11)).foregroundColor(.blue)
                 }
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(Color.black.opacity(0.4))
+            .padding(.horizontal, 12).padding(.vertical, 8).background(Color.black.opacity(0.4))
             Divider().background(Color.gray.opacity(0.3))
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(12)
-                    .textSelection(.enabled)
+                    .font(.system(size: 13, design: .monospaced)).foregroundColor(.white)
+                    .padding(12).textSelection(.enabled)
             }
         }
         .background(Color(UIColor.systemGray6).opacity(0.15))
