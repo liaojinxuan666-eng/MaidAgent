@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct)
+struct ChatView: View {
  ChatView: View {
     var projectId: UUID? = nil
     var sessionId: UUID? = nil
