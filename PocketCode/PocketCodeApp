@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MaidAgentApp: App {
+struct PocketCodeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
