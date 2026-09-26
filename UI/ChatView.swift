@@ -166,58 +166,25 @@ struct ChatView: View {
         }
     }
     
-    // MARK: - 真正的 API 请求（告别“你好”）
+    // MARK: - 调用真正的 AgentLoop
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
+        
         await MainActor.run {
             messages.append(ChatMessage(role: "user", content: text))
             isLoading = true
         }
         
-        let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? ""
-        let baseURL = UserDefaults.standard.string(forKey: "baseURL") ?? "https://api.deepseek.com"
-        let modelName = UserDefaults.standard.string(forKey: "modelName") ?? "deepseek-chat"
-        
-        guard let url = URL(string: "\(baseURL)/chat/completions") else {
-            await MainActor.run {
-                messages.append(ChatMessage(role: "assistant", content: "URL 格式错误，请检查设置里的 Base URL。"))
-                isLoading = false
-            }
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let apiMessages = messages.map { ["role": $0.role, "content": $0.content] }
-        let body: [String: Any] = [
-            "model": modelName,
-            "messages": apiMessages
-        ]
-        
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let choices = json["choices"] as? [[String: Any]],
-               let message = choices.first?["message"] as? [String: Any],
-               let content = message["content"] as? String {
-                await MainActor.run {
-                    messages.append(ChatMessage(role: "assistant", content: content))
-                    isLoading = false
-                }
-            } else {
-                await MainActor.run {
-                    messages.append(ChatMessage(role: "assistant", content: "API 返回格式错误，请检查设置。"))
-                    isLoading = false
-                }
+            // 调用真正的 Agent 循环
+            let updatedMessages = try await AgentLoop.shared.run(initialMessages: messages)
+            await MainActor.run {
+                self.messages = updatedMessages
+                isLoading = false
             }
         } catch {
             await MainActor.run {
-                messages.append(ChatMessage(role: "assistant", content: "网络请求失败: \(error.localizedDescription)"))
+                messages.append(ChatMessage(role: "assistant", content: "错误: \(error.localizedDescription)"))
                 isLoading = false
             }
         }
