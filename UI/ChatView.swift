@@ -7,7 +7,7 @@ struct ChatView: View {
     var projectContext: String? = nil
 
     @StateObject private var store = ProjectStore.shared
-    
+
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var isLoading = false
@@ -15,7 +15,7 @@ struct ChatView: View {
     @State private var showAttachmentSheet = false
     @State private var showFileImporter = false
     @State private var fileImportError: String? = nil
-    
+
     @State private var streamingMessage: ChatMessage? = nil
     @FocusState private var isInputFocused: Bool
 
@@ -38,7 +38,6 @@ struct ChatView: View {
                             .padding(.top, 40)
                         } else {
                             LazyVStack(alignment: .leading, spacing: 16) {
-                                // 消息分组渲染
                                 ForEach(groupedMessages) { group in
                                     switch group {
                                     case .single(let msg):
@@ -49,7 +48,7 @@ struct ChatView: View {
                                         ThinkingBlockView(messages: msgs).id(group.id)
                                     }
                                 }
-                                
+
                                 if let streamMsg = streamingMessage {
                                     MessageBubble(message: streamMsg).id(streamMsg.id)
                                 } else if isLoading {
@@ -77,8 +76,7 @@ struct ChatView: View {
                         }
                     }
                 }
-                
-                // 底部输入区
+
                 VStack(spacing: 0) {
                     Divider().background(Color.gray.opacity(0.2))
                     HStack(alignment: .bottom, spacing: 12) {
@@ -90,13 +88,13 @@ struct ChatView: View {
                                 .background(Color(UIColor.tertiarySystemFill))
                                 .clipShape(Circle())
                         }.padding(.bottom, 2)
-                        
+
                         HStack(alignment: .bottom, spacing: 8) {
                             TextField("输入指令...", text: $inputText, axis: .vertical)
                                 .lineLimit(1...6)
                                 .padding(.vertical, 10).padding(.leading, 8)
                                 .focused($isInputFocused)
-                            
+
                             Button(action: {
                                 let text = inputText
                                 inputText = ""
@@ -156,7 +154,6 @@ struct ChatView: View {
             }
         }
         .navigationViewStyle(.stack)
-        // 侧边栏（包含“项目”入口）
         .sheet(isPresented: $showSidebar) {
             NavigationView {
                 List {
@@ -191,23 +188,22 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentSheet(
-                isPresented: $showAttachmentSheet,
+               \( isPresented: $showAttachmentSheetpid,
                 onSelectLocalFile: { showFileImporter = true },
                 onSelectGitHub: { inputText += " [GitHub 链接] " },
-                onSelectWeb: { inputText += " [网页链接] " }
+                onSelectWeb: { inputText += ".u [网页链接] " }
             )
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.plainText, .sourceCode, .data], allowsMultipleSelection: false) { result in
+        .fileImporter(
+            isPresented: $showuidFileImporter,
+            allowedContentTypes: [.data, .item],
+            allowsMultipleSelection: true
+        ) { result in
             switch result {
             case .success(let urls):
-                guard let url = urls.first else { return }
-                do {
-                    let content = try String(contentsOf: url, encoding: .utf8)
-                    let vfsPath = "uploads/\(url.lastPathComponent)"
-                    try VirtualFileSystem.shared.writeFileText(vfsPath, text: content)
-                    inputText += "【我上传了文件：\(vfsPath)，请读取并分析】"
-                } catch { fileImportError = "读取文件失败: \(error.localizedDescription)" }
-            case .failure(let error): fileImportError = "选择文件失败: \(error.localizedDescription)"
+                Task { await uploadFiles(urls) }
+            case .failure(let error):
+                fileImportError = "选择文件String失败: \(error.localizedDescription)"
             }
         }
         .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
@@ -215,12 +211,54 @@ struct ChatView: View {
         }, message: { Text(fileImportError ?? "") })
         .onAppear { loadMessagesFromStore() }
     }
-    
+
+    // MARK: - 上传路径规则
+    /// 项目会话：/projects/{projectId}/files
+    /// 全局会话：/files
+    private var fileBasePath: String {
+        if let pid = projectId {
+            return "/projects/)/files"
+        } else {
+            return "/files"
+        }
+    }
+
+    // MARK: - 统一上传通道
+    private func uploadFiles(_ urls: [URL]) async {
+        var uploadedNames: [String] = []
+        var failed: [String] = []
+
+        for url in urls {
+            let needsStop = url.startAccessingSecurityScopedResource()
+            defer { if needsStop { url.stopAccessingSecurityScopedResource() } }
+
+            do {
+                let data = try Data(contentsOf: url)
+                let filename = url.lastPathComponent
+                let vfsPath = fileBasePath + "/" + filename
+                try VirtualFileSystem.shared.writeFileData(vfsPath, data: data)
+                uploadedNames.append(filename)
+            } catch {
+                failed.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        await MainActor.run {
+            if !uploadedNames.isEmpty {
+                let list = uploadedNames.joined(separator: "、")
+                inputText += "【我上传了文件：\(list)（已保存到资料库），请读取并分析】"
+            }
+            if !failed.isEmpty {
+                fileImportError = "部分文件上传失败：\n" + failed.joined(separator: "\n")
+            }
+        }
+    }
+
     // MARK: - 消息分组逻辑
     enum MessageGroup: Identifiable {
         case single(ChatMessage)
         case thinking([ChatMessage])
-        
+
         var id: UUID {
             switch self {
             case .single(let msg): return msg.id
@@ -228,11 +266,11 @@ struct ChatView: View {
             }
         }
     }
-    
+
     var groupedMessages: [MessageGroup] {
         var groups: [MessageGroup] = []
         var currentThinking: [ChatMessage] = []
-        
+
         for msg in messages {
             if msg.type == "thinking" {
                 currentThinking.append(msg)
@@ -249,31 +287,31 @@ struct ChatView: View {
         }
         return groups
     }
-    
+
     // MARK: - 持久化与发送逻辑
     private func loadMessagesFromStore() {
         guard let pid = projectId, let sid = sessionId, let session = store.getSession(projectId: pid, sessionId: sid) else { return }
         messages = session.messages
     }
-    
+
     private func saveMessagesToStore() {
         guard let pid = projectId, let sid = sessionId else { return }
         store.updateSessionMessages(projectId: pid, sessionId: sid, messages: messages)
     }
-    
+
     @MainActor
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
         messages.append(ChatMessage(role: "user", content: text))
         isLoading = true
         saveMessagesToStore()
-        
+
         let streamingId = UUID()
         self.streamingMessage = ChatMessage(id: streamingId, role: "assistant", content: "")
-        
+
         var buffer = ""
         var lastUpdate = Date()
-        
+
         do {
             let finalMessages = try await AgentLoop.shared.run(initialMessages: messages) { token in
                 buffer += token
@@ -301,7 +339,7 @@ struct ChatView: View {
             saveMessagesToStore()
         }
     }
-    
+
     @MainActor
     private func regenerateLastResponse() {
         guard let lastUserMsg = messages.last(where: { $0.role == "user" }) else { return }
@@ -315,7 +353,7 @@ struct ChatView: View {
 struct ThinkingBlockView: View {
     let messages: [ChatMessage]
     @State private var isExpanded = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: { withAnimation { isExpanded.toggle() } }) {
@@ -331,7 +369,7 @@ struct ThinkingBlockView: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
-            
+
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(messages) { msg in
@@ -369,7 +407,7 @@ struct ThinkingBlockView: View {
 struct MessageBubble: View {
     let message: ChatMessage
     var onRegenerate: (() -> Void)? = nil
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -386,7 +424,7 @@ struct MessageBubble: View {
                     Spacer()
                 }
             }
-            
+
             if message.role == "assistant" && message.type == "text" && !message.content.isEmpty {
                 HStack(spacing: 24) {
                     Button(action: { UIPasteboard.general.string = message.content }) {
@@ -437,7 +475,7 @@ struct MessageContentView: View {
             }
         }
     }
-    
+
     private func parseMarkdown(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         let pattern = "```(\\w*)\\n([\\s\\S]*?)(```|$)"
@@ -446,7 +484,7 @@ struct MessageContentView: View {
         }
         let nsString = text as NSString
         let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-        
+
         var lastIndex = 0
         for match in matches {
             let textRange = NSRange(location: lastIndex, length: match.range.location - lastIndex)
@@ -489,7 +527,7 @@ struct CodeBlockView: View {
     let language: String
     let isClosed: Bool
     @State private var isCopied = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
