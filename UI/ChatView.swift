@@ -16,13 +16,14 @@ struct ChatView: View {
     @State private var showFileImporter = false
     @State private var fileImportError: String? = nil
     
-    // ✨ 核心：流式渲染专用的临时消息，避免频繁重绘整个 messages 数组
+    // ✨ 流式渲染专用的临时消息，避免频繁重绘整个 messages 数组
     @State private var streamingMessage: ChatMessage? = nil
     
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            // MARK: - 消息列表 / 空状态
             ScrollViewReader { proxy in
                 ScrollView {
                     if messages.isEmpty && streamingMessage == nil {
@@ -31,10 +32,14 @@ struct ChatView: View {
                                 .font(.system(size: 60))
                                 .foregroundColor(.blue.opacity(0.8))
                                 .padding(.top, 120)
+                            
                             Text("今天要在 \(projectContext ?? "沙箱") 里写点什么？")
-                                .font(.title3).foregroundColor(.primary)
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                            
                             Text("或者让我帮你重构、修 Bug、看 GitHub 源码")
-                                .font(.caption).foregroundColor(.gray)
+                                .font(.caption)
+                                .foregroundColor(.gray)
                         }
                         .padding(.top, 40)
                     } else {
@@ -44,13 +49,15 @@ struct ChatView: View {
                                 MessageBubble(message: msg).id(msg.id)
                             }
                             
-                            // ✨ 流式消息（独立渲染，不污染数组）
+                            // 流式消息（独立渲染）
                             if let streamMsg = streamingMessage {
                                 MessageBubble(message: streamMsg).id(streamMsg.id)
                             } else if isLoading {
                                 HStack(spacing: 8) {
                                     ProgressView().scaleEffect(0.8)
-                                    Text("思考中...").font(.caption).foregroundColor(.gray)
+                                    Text("思考中...")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
                                     Spacer()
                                 }
                                 .padding(.horizontal)
@@ -69,10 +76,9 @@ struct ChatView: View {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
-                // ✨ 流式内容更新时自动滚动
+                // 流式内容更新时自动滚动
                 .onChange(of: streamingMessage?.content) { _ in
                     if let streamId = streamingMessage?.id {
-                        // 使用 DispatchQueue.main.async 避免在视图更新过程中触发滚动
                         DispatchQueue.main.async {
                             withAnimation { proxy.scrollTo(streamId, anchor: .bottom) }
                         }
@@ -80,10 +86,12 @@ struct ChatView: View {
                 }
             }
             
-            // 底部输入区（保持不变）
+            // MARK: - 底部输入区
             VStack(spacing: 0) {
                 Divider().background(Color.gray.opacity(0.2))
+                
                 HStack(alignment: .bottom, spacing: 12) {
+                    // + 号附件按钮
                     Button(action: { showAttachmentSheet = true }) {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .bold))
@@ -94,13 +102,16 @@ struct ChatView: View {
                     }
                     .padding(.bottom, 2)
                     
+                    // 胶囊输入框
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("输入指令...", text: $inputText, axis: .vertical)
                             .lineLimit(1...6)
                             .padding(.vertical, 10)
                             .padding(.leading, 8)
+                            .foregroundColor(.primary)
                             .focused($isInputFocused)
                         
+                        // 发送按钮
                         Button(action: {
                             let text = inputText
                             inputText = ""
@@ -115,15 +126,21 @@ struct ChatView: View {
                                 .clipShape(Circle())
                         }
                         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                        .padding(.trailing, 4).padding(.bottom, 4)
+                        .padding(.trailing, 4)
+                        .padding(.bottom, 4)
                     }
                     .padding(.horizontal, 6)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                Text("内容由 AI 生成").font(.system(size: 10)).foregroundColor(.gray).padding(.bottom, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                
+                Text("内容由 AI 生成")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray)
+                    .padding(.bottom, 8)
             }
             .background(Color.black)
         }
@@ -133,9 +150,12 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: { showSidebar.toggle() }) {
-                    Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.primary)
                 }
             }
+            
             ToolbarItem(placement: .principal) {
                 Menu {
                     Button("DeepSeek Chat") {}
@@ -145,17 +165,23 @@ struct ChatView: View {
                         Text("PocketCode AI").font(.subheadline.weight(.semibold))
                         Image(systemName: "chevron.down").font(.caption2)
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                     .background(Color(UIColor.tertiarySystemFill))
                     .clipShape(Capsule())
                 }
             }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    if let pid = projectId { _ = store.createSession(projectId: pid, title: "新会话") }
-                    else { messages.removeAll() }
+                    if let pid = projectId {
+                        _ = store.createSession(projectId: pid, title: "新会话")
+                    } else {
+                        messages.removeAll()
+                    }
                 }) {
-                    Image(systemName: "square.and.pencil").font(.system(size: 18))
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18))
                 }
             }
         }
@@ -173,13 +199,27 @@ struct ChatView: View {
                     }
                 }
                 .navigationTitle("会话历史")
-                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showSidebar = false } } }
-            }.preferredColorScheme(.dark)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("完成") { showSidebar = false }
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showAttachmentSheet) {
-            AttachmentSheet(isPresented: $showAttachmentSheet, onSelectLocalFile: { showFileImporter = true }, onSelectGitHub: { inputText += " [GitHub 链接] " }, onSelectWeb: { inputText += " [网页链接] " })
+            AttachmentSheet(
+                isPresented: $showAttachmentSheet,
+                onSelectLocalFile: { showFileImporter = true },
+                onSelectGitHub: { inputText += " [GitHub 链接] " },
+                onSelectWeb: { inputText += " [网页链接] " }
+            )
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.plainText, .sourceCode, .data], allowsMultipleSelection: false) { result in
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.plainText, .sourceCode, .data],
+            allowsMultipleSelection: false
+        ) { result in
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
@@ -198,12 +238,16 @@ struct ChatView: View {
         }
         .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
             Button("好") { fileImportError = nil }
-        }, message: { Text(fileImportError ?? "") })
+        }, message: {
+            Text(fileImportError ?? "")
+        })
         .onAppear { loadMessagesFromStore() }
     }
     
+    // MARK: - 持久化逻辑
     private func loadMessagesFromStore() {
-        guard let pid = projectId, let sid = sessionId, let session = store.getSession(projectId: pid, sessionId: sid) else { return }
+        guard let pid = projectId, let sid = sessionId,
+              let session = store.getSession(projectId: pid, sessionId: sid) else { return }
         messages = session.messages
     }
     
@@ -212,21 +256,17 @@ struct ChatView: View {
         store.updateSessionMessages(projectId: pid, sessionId: sid, messages: messages)
     }
     
-    // MARK: - 发送消息（带节流的流式打字机）
+    // MARK: - 发送消息（带节流的流式打字机 + 断网保护）
+    @MainActor
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
         
-        await MainActor.run {
-            messages.append(ChatMessage(role: "user", content: text))
-            isLoading = true
-            saveMessagesToStore()
-        }
+        messages.append(ChatMessage(role: "user", content: text))
+        isLoading = true
+        saveMessagesToStore()
         
-        // 使用临时流式消息，避免污染主数组
         let streamingId = UUID()
-        await MainActor.run {
-            self.streamingMessage = ChatMessage(id: streamingId, role: "assistant", content: "")
-        }
+        self.streamingMessage = ChatMessage(id: streamingId, role: "assistant", content: "")
         
         var buffer = ""
         var lastUpdate = Date()
@@ -234,8 +274,8 @@ struct ChatView: View {
         do {
             let finalMessages = try await AgentLoop.shared.run(initialMessages: messages) { token in
                 buffer += token
-                // ✨ 节流：每 100ms 最多更新一次 UI，彻底解决卡顿
-                if Date().timeIntervalSince(lastUpdate) > 0.1 {
+                // 节流：每 300ms 更新一次 UI，避免把手机卡死
+                if Date().timeIntervalSince(lastUpdate) > 0.3 {
                     let currentText = buffer
                     lastUpdate = Date()
                     Task { @MainActor in
@@ -246,20 +286,20 @@ struct ChatView: View {
                 }
             }
             
-            await MainActor.run {
-                // 流式结束，将最终结果存入主数组
-                self.messages = finalMessages
-                self.streamingMessage = nil
-                self.isLoading = false
-                saveMessagesToStore()
-            }
+            self.messages = finalMessages
+            self.streamingMessage = nil
+            self.isLoading = false
+            saveMessagesToStore()
+            
         } catch {
-            await MainActor.run {
-                self.messages.append(ChatMessage(role: "assistant", content: "错误: \(error.localizedDescription)"))
-                self.streamingMessage = nil
-                self.isLoading = false
-                saveMessagesToStore()
+            // 断网保护：把已经收到的部分内容保存下来
+            if !buffer.isEmpty {
+                self.messages.append(ChatMessage(role: "assistant", content: buffer + "\n\n[网络中断，已保存部分内容]"))
             }
+            self.messages.append(ChatMessage(role: "assistant", content: "网络错误: \(error.localizedDescription)。请检查代理或稍后重试。"))
+            self.streamingMessage = nil
+            self.isLoading = false
+            saveMessagesToStore()
         }
     }
 }
@@ -278,12 +318,15 @@ struct MessageBubble: View {
                     .foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else if message.type == "tool_call" {
+                // Claude Code 风格的工具调用卡片
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: "wrench.and.screwdriver.fill")
-                            .font(.system(size: 12)).foregroundColor(.blue)
+                            .font(.system(size: 12))
+                            .foregroundColor(.blue)
                         Text("调用工具: \(message.toolName ?? "未知")")
-                            .font(.system(size: 13, weight: .medium)).foregroundColor(.blue)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.blue)
                     }
                     if let args = message.toolArgs, !args.isEmpty {
                         Text(args)
