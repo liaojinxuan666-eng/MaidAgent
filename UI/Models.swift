@@ -1,15 +1,16 @@
 import Foundation
 
 struct ChatMessage: Identifiable, Codable, Equatable {
-    let id: UUID
+    var id: UUID = UUID() // 必须是 var
     let role: String
-    let content: String
-    var type: String = "text" // "text", "tool_call", "thinking"
+    var content: String   // 必须是 var，流式输出需要修改它
+    var type: String = "text"
     var toolName: String? = nil
     var toolArgs: String? = nil
     
-    init(role: String, content: String, type: String = "text", toolName: String? = nil, toolArgs: String? = nil) {
-        self.id = UUID()
+    // 必须包含带 id 参数的初始化方法
+    init(id: UUID = UUID(), role: String, content: String, type: String = "text", toolName: String? = nil, toolArgs: String? = nil) {
+        self.id = id
         self.role = role
         self.content = content
         self.type = type
