@@ -13,6 +13,12 @@ enum APIError: Error, LocalizedError {
     }
 }
 
+enum StreamEvent {
+    case text(String)
+    case toolCalls([[String: Any]])
+    case done
+}
+
 final class APIClient {
     static let shared = APIClient()
     private init() {}
@@ -25,8 +31,7 @@ final class APIClient {
         return (apiKey, baseURL, model)
     }
     
-    /// 流式对话请求
-    func chatStream(messages: [[String: Any]], tools: [[String: Any]]? = nil) -> AsyncThrowingStream<String, Error> {
+    func chatStream(messages: [[String: Any]], tools: [[String: Any]]? = nil) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -38,28 +43,30 @@ final class APIClient {
                     request.httpMethod = "POST"
                     request.addValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
                     request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-                    request.timeoutInterval = 1800 // 30分钟总超时
+                    request.timeoutInterval = 1800
                     
-                    var body: [String: Any] = [
-                        "model": config.model,
-                        "messages": messages,
-                        "stream": true // 👈 开启流式
-                    ]
+                    var body: [String: Any] = ["model": config.model, "messages": messages, "stream": true]
                     if let tools = tools, !tools.isEmpty {
                         body["tools"] = tools
                         body["tool_choice"] = "auto"
                     }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     
-                    // 使用 bytes(for:) 实现流式读取
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    // 配置 URLSession 保持长连接
+                    let sessionConfig = URLSessionConfiguration.default
+                    sessionConfig.timeoutIntervalForRequest = 1800
+                    sessionConfig.timeoutIntervalForResource = 1800
+                    sessionConfig.waitsForConnectivity = true
+                    let session = URLSession(configuration: sessionConfig)
                     
+                    let (bytes, response) = try await session.bytes(for: request)
                     guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
                         throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0, "服务端拒绝请求")
                     }
                     
+                    var toolCallsDict: [Int: [String: Any]] = [:]
+                    
                     for try await line in bytes.lines {
-                        // SSE 格式：data: {...}
                         if line.hasPrefix("data: ") {
                             let jsonString = String(line.dropFirst(6))
                             if jsonString == "[DONE]" { break }
@@ -69,18 +76,38 @@ final class APIClient {
                                let choices = json["choices"] as? [[String: Any]],
                                let delta = choices.first?["delta"] as? [String: Any] {
                                 
-                                // 提取正文内容
-                                if let content = delta["content"] as? String {
-                                    continuation.yield(content)
+                                // 1. 收到文字
+                                if let content = delta["content"] as? String, !content.isEmpty {
+                                    continuation.yield(.text(content))
                                 }
                                 
-                                // 提取工具调用（暂时只传回提示，防止卡死）
-                                if let toolCalls = delta["tool_calls"] as? [[String: Any]], !toolCalls.isEmpty {
-                                    // 工具调用的流式解析比较复杂，第一版我们只处理文本
+                                // 2. 收到工具调用（流式模式下，工具参数是分片传过来的）
+                                if let deltaToolCalls = delta["tool_calls"] as? [[String: Any]] {
+                                    for tc in deltaToolCalls {
+                                        guard let index = tc["index"] as? Int else { continue }
+                                        if toolCallsDict[index] == nil {
+                                            toolCallsDict[index] = ["id": "", "type": "function", "function": ["name": "", "arguments": ""]]
+                                        }
+                                        if let id = tc["id"] as? String { toolCallsDict[index]?["id"] = id }
+                                        if let function = tc["function"] as? [String: Any] {
+                                            var f = toolCallsDict[index]?["function"] as? [String: Any] ?? [:]
+                                            if let name = function["name"] as? String { f["name"] = name }
+                                            if let args = function["arguments"] as? String {
+                                                f["arguments"] = (f["arguments"] as? String ?? "") + args
+                                            }
+                                            toolCallsDict[index]?["function"] = f
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    
+                    let finalCalls = toolCallsDict.sorted { $0.key < $1.key }.map { $0.value }
+                    if !finalCalls.isEmpty {
+                        continuation.yield(.toolCalls(finalCalls))
+                    }
+                    continuation.yield(.done)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
