@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @State private var messages: [ChatMessage] = []
@@ -6,6 +7,10 @@ struct ChatView: View {
     @State private var isLoading = false
     @State private var showSidebar = false
     
+    // 文件上传状态
+    @State private var showFileImporter = false
+    @State private var fileImportError: String? = nil
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -13,9 +18,14 @@ struct ChatView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         if messages.isEmpty {
-                            Text("无会话记录，点击左上角 + 新建")
-                                .foregroundColor(.gray)
-                                .padding(.top, 100)
+                            VStack(spacing: 12) {
+                                Image(systemName: "message")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.gray)
+                                Text("暂无会话记录")
+                                    .foregroundColor(.gray)
+                            }
+                            .padding(.top, 120)
                         } else {
                             LazyVStack(alignment: .leading, spacing: 16) {
                                 ForEach(messages) { msg in
@@ -41,43 +51,57 @@ struct ChatView: View {
                     }
                 }
                 
-                // 底部输入区（多行、带加号附件）
+                // 现代化底部输入区
                 VStack(spacing: 0) {
-                    Divider().background(Color.gray.opacity(0.3))
-                    HStack(alignment: .bottom, spacing: 12) {
-                        // 附件按钮
-                        Button(action: {
-                            // TODO: 后续实现 UIDocumentPicker 上传文件
-                        }) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(.gray)
+                    Divider().background(Color.gray.opacity(0.2))
+                    
+                    HStack(alignment: .bottom, spacing: 10) {
+                        // + 号附件按钮（圆形灰底）
+                        Button(action: { showFileImporter = true }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.primary.opacity(0.7))
+                                .frame(width: 34, height: 34)
+                                .background(Color(UIColor.tertiarySystemFill))
+                                .clipShape(Circle())
                         }
-                        .padding(.bottom, 6)
+                        .padding(.bottom, 2)
                         
-                        // 多行输入框
-                        TextField("输入指令...", text: $inputText, axis: .vertical)
-                            .lineLimit(1...6)
-                            .padding(10)
-                            .background(Color.gray.opacity(0.15))
-                            .cornerRadius(18)
-                            .foregroundColor(.white)
-                        
-                        // 发送按钮
-                        Button(action: {
-                            let text = inputText
-                            inputText = ""
-                            Task { await sendMessage(text) }
-                        }) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(inputText.isEmpty ? .gray : .white)
+                        // 输入框（胶囊 + 毛玻璃）
+                        HStack(alignment: .bottom, spacing: 6) {
+                            TextField("输入指令...", text: $inputText, axis: .vertical)
+                                .lineLimit(1...6)
+                                .padding(.vertical, 8)
+                                .padding(.leading, 6)
+                                .foregroundColor(.primary)
+                            
+                            // 发送按钮（胶囊内嵌圆圈）
+                            Button(action: {
+                                let text = inputText
+                                inputText = ""
+                                Task { await sendMessage(text) }
+                            }) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .frame(width: 28, height: 28)
+                                    .background(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray.opacity(0.4) : Color.blue)
+                                    .clipShape(Circle())
+                            }
+                            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                            .padding(.trailing, 4)
+                            .padding(.bottom, 3)
                         }
-                        .disabled(inputText.isEmpty || isLoading)
-                        .padding(.bottom, 6)
+                        .padding(.horizontal, 6)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
+                        )
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                 }
                 .background(Color.black)
             }
@@ -85,25 +109,19 @@ struct ChatView: View {
             .navigationTitle("PocketCode")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // 左上角：历史会话（侧边栏）
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: { showSidebar.toggle() }) {
-                        Image(systemName: "sidebar.left")
-                            .foregroundColor(.white)
+                        Image(systemName: "sidebar.left").foregroundColor(.primary)
                     }
                 }
-                // 右上角：新建会话
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        messages.removeAll()
-                    }) {
-                        Image(systemName: "square.and.pencil")
-                            .foregroundColor(.white)
+                    Button(action: { messages.removeAll() }) {
+                        Image(systemName: "square.and.pencil").foregroundColor(.primary)
                     }
                 }
             }
+            // 历史会话侧边栏
             .sheet(isPresented: $showSidebar) {
-                // 侧边栏历史会话列表
                 NavigationView {
                     List {
                         Text("历史会话列表（后续接入本地持久化）")
@@ -119,6 +137,32 @@ struct ChatView: View {
                 }
                 .preferredColorScheme(.dark)
             }
+            // 文件选择器
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.plainText, .sourceCode, .data],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    do {
+                        let content = try String(contentsOf: url, encoding: .utf8)
+                        // 把文件内容拼接到输入框，方便你直接发送给 AI 分析
+                        inputText += "\n```\n\(content)\n```\n"
+                    } catch {
+                        fileImportError = "读取文件失败: \(error.localizedDescription)"
+                    }
+                case .failure(let error):
+                    fileImportError = "选择文件失败: \(error.localizedDescription)"
+                }
+            }
+            // 文件导入错误提示
+            .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
+                Button("好") { fileImportError = nil }
+            }, message: {
+                Text(fileImportError ?? "")
+            })
         }
     }
     
@@ -130,19 +174,23 @@ struct ChatView: View {
             isLoading = true
         }
         
-        // 读取设置里的 API 配置
         let apiKey = UserDefaults.standard.string(forKey: "apiKey") ?? ""
         let baseURL = UserDefaults.standard.string(forKey: "baseURL") ?? "https://api.deepseek.com"
         let modelName = UserDefaults.standard.string(forKey: "modelName") ?? "deepseek-chat"
         
-        // 组装真实的请求
-        guard let url = URL(string: "\(baseURL)/chat/completions") else { return }
+        guard let url = URL(string: "\(baseURL)/chat/completions") else {
+            await MainActor.run {
+                messages.append(ChatMessage(role: "assistant", content: "URL 格式错误，请检查设置里的 Base URL。"))
+                isLoading = false
+            }
+            return
+        }
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // 构建消息历史
         let apiMessages = messages.map { ["role": $0.role, "content": $0.content] }
         let body: [String: Any] = [
             "model": modelName,
@@ -163,7 +211,7 @@ struct ChatView: View {
                 }
             } else {
                 await MainActor.run {
-                    messages.append(ChatMessage(role: "assistant", content: "API 返回格式错误，请检查设置中的 BaseURL 和模型名。"))
+                    messages.append(ChatMessage(role: "assistant", content: "API 返回格式错误，请检查设置。"))
                     isLoading = false
                 }
             }
@@ -186,15 +234,15 @@ struct MessageBubble: View {
                 Spacer()
                 Text(message.content)
                     .padding(12)
-                    .background(Color.blue.opacity(0.8))
+                    .background(Color.blue)
                     .foregroundColor(.white)
-                    .cornerRadius(16)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else {
                 Text(message.content)
                     .padding(12)
-                    .background(Color.gray.opacity(0.2))
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
+                    .background(Color(UIColor.secondarySystemFill))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 Spacer()
             }
         }
