@@ -19,6 +19,14 @@ jobs:
     - name: Generate Xcode Project
       run: xcodegen generate
 
+    # 新增步骤：强制把 objectVersion 降级到 56，兼容 Xcode 15.4
+    - name: Force objectVersion to 56
+      run: |
+        sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' MaidAgent.xcodeproj/project.pbxproj
+
+    - name: Select Xcode 15.4
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
     - name: Build App
       run: |
         xcodebuild build \
