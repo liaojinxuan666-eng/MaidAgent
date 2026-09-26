@@ -1,0 +1,18 @@
+name: MaidAgent
+options:
+  bundleIdPrefix: com.yourname.maidagent
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  MaidAgent:
+    type: application
+    platform: iOS
+    sources: 
+      - MaidAgent
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourname.maidagent
