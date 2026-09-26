@@ -65,7 +65,7 @@ struct ChatView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
-                        withAnimation { proxy..scrollTo(last.id, anchor: .bottom) }
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
                 .onChange(of: streamingMessage?.content) { _ in
@@ -86,7 +86,7 @@ struct ChatView: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.primary.opacity(0.8))
                             .frame(width: 38, height: 38)
-                            .background(Color(UIColortertiarySystemFill))
+                            .background(Color(UIColor.tertiarySystemFill))
                             .clipShape(Circle())
                     }.padding(.bottom, 2)
                     
@@ -344,7 +344,7 @@ struct ThinkingBlockView: View {
     }
 }
 
-// MARK: - 消息气泡（加入原生长按菜单，彻底解决复制问题）
+// MARK: - 消息气泡
 struct MessageBubble: View {
     let message: ChatMessage
     var onRegenerate: (() -> Void)? = nil
@@ -386,7 +386,6 @@ struct MessageBubble: View {
                 }.padding(.leading, 12).padding(.top, 4)
             }
         }
-        // ✨ 新增：原生长按菜单（图二那种长按弹出复制/分享）
         .contextMenu {
             Button {
                 UIPasteboard.general.string = message.content
