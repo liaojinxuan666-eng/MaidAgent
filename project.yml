@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.yourname.maidagent
   deploymentTarget:
     iOS: "16.0"
+  xcodeVersion: "15.4" # <--- 新增这一行，强制 XcodeGen 生成兼容格式
 targets:
   MaidAgent:
     type: application
