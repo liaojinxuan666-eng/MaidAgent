@@ -3,21 +3,21 @@ import Foundation
 // MARK: - 读文件
 struct ReadFileTool: AITool {
     static let name = "read_file"
-    static let description = "读取沙箱内指定文件的完整内容"
+    static let description = "读取沙箱内指定文本文件的完整内容。只适用于文本文件（代码、Markdown、JSON 等），二进制文件请勿使用"
     static let parameters: [String: Any] = [
         "type": "object",
         "properties": [
-            "path": ["type": "string", "description": "文件路径，相对根目录"]
+            "path": ["type": "string", "description": "文件路径，相对于沙箱根目录"]
         ],
         "required": ["path"]
     ]
-    
+
     static func execute(arguments: [String: Any]) async throws -> String {
         guard let path = arguments["path"] as? String else {
             return "错误：缺少 path 参数"
         }
         do {
-            return try VirtualFileSystem.shared.readFile(path)
+            return try VirtualFileSystem.shared.readFileText(path)
         } catch {
             return "读取失败: \(error.localizedDescription)"
         }
@@ -27,23 +27,23 @@ struct ReadFileTool: AITool {
 // MARK: - 写文件
 struct WriteFileTool: AITool {
     static let name = "write_file"
-    static let description = "将内容写入沙箱内的指定文件，会覆盖原内容"
+    static let description = "将文本内容写入沙箱内的指定文件，会覆盖原内容。父目录不存在时会自动创建"
     static let parameters: [String: Any] = [
         "type": "object",
         "properties": [
-            "path": ["type": "string", "description": "文件路径，相对根目录"],
-            "content": ["type": "string", "description": "完整的文件内容"]
+            "path": ["type": "string", "description": "文件路径，相对于沙箱根目录"],
+            "content": ["type": "string", "description": "完整的文本内容"]
         ],
         "required": ["path", "content"]
     ]
-    
+
     static func execute(arguments: [String: Any]) async throws -> String {
         guard let path = arguments["path"] as? String,
               let content = arguments["content"] as? String else {
-            return "错误：参数不完整"
+            return "错误：参数不完整（需要 path 和 content）"
         }
         do {
-            try VirtualFileSystem.shared.writeFile(path, content: content)
+            try VirtualFileSystem.shared.writeFileText(path, text: content)
             return "成功写入 \(path)"
         } catch {
             return "写入失败: \(error.localizedDescription)"
@@ -54,15 +54,15 @@ struct WriteFileTool: AITool {
 // MARK: - 列出目录
 struct ListDirTool: AITool {
     static let name = "list_dir"
-    static let description = "列出沙箱内指定目录下的所有文件和子目录"
+    static let description = "列出沙箱内指定目录下的所有文件和子目录名。查看根目录时 path 传空字符串"
     static let parameters: [String: Any] = [
         "type": "object",
         "properties": [
-            "path": ["type": "string", "description": "目录路径，根目录传空字符串"]
+            "path": ["type": "string", "description": "目录路径，根目录传空字符串 \"\""]
         ],
         "required": ["path"]
     ]
-    
+
     static func execute(arguments: [String: Any]) async throws -> String {
         let path = arguments["path"] as? String ?? ""
         do {
@@ -77,7 +77,7 @@ struct ListDirTool: AITool {
 // MARK: - 执行终端命令
 struct ExecuteCommandTool: AITool {
     static let name = "execute_command"
-    static let description = "在沙箱虚拟终端中执行命令。支持 ls, cat, mkdir, touch, rm, echo, grep, find, wc, head, tail 等。禁止使用 sudo, su 等越权命令。"
+    static let description = "在沙箱虚拟终端中执行命令。支持 ls, cat, mkdir, touch, rm, echo, grep, find, wc, head, tail 等。禁止使用 sudo, su, chmod 等越权命令"
     static let parameters: [String: Any] = [
         "type": "object",
         "properties": [
@@ -85,15 +85,15 @@ struct ExecuteCommandTool: AITool {
         ],
         "required": ["command"]
     ]
-    
+
     static func execute(arguments: [String: Any]) async throws -> String {
         guard let command = arguments["command"] as? String else {
             return "错误：缺少 command 参数"
         }
-        
+
         let result = try await CommandInterpreter.shared.execute(command)
-        
-        // 把标准输出和退出码一并返回，让 AI 知道执行结果
+
+        // 把标准输出和退出码一并返回
         let status = result.exitCode == 0 ? "✅" : "❌"
         return "\(status) 执行结果:\n\(result.output)"
     }
