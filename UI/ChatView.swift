@@ -37,6 +37,7 @@ struct ChatView: View {
                         .padding(.top, 40)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 16) {
+                            // 消息分组渲染
                             ForEach(groupedMessages) { group in
                                 switch group {
                                 case .single(let msg):
@@ -152,11 +153,9 @@ struct ChatView: View {
                 }
             }
         }
-        // ✨ 重构后的侧边栏（包含“项目”入口）
         .sheet(isPresented: $showSidebar) {
             NavigationView {
                 List {
-                    // 第一组：主要功能入口
                     Section {
                         NavigationLink(destination: ProjectView()) {
                             Label("项目", systemImage: "folder")
@@ -165,8 +164,6 @@ struct ChatView: View {
                             Label("插件与资料库", systemImage: "square.grid.2x2")
                         }
                     }
-                    
-                    // 第二组：最近的会话列表
                     Section(header: Text("最近会话")) {
                         if let pid = projectId, let project = store.getProject(pid) {
                             ForEach(project.sessions) { session in
@@ -186,14 +183,13 @@ struct ChatView: View {
                         Button("完成") { showSidebar = false }
                     }
                 }
-            }
-            .preferredColorScheme(.dark)
+            }.preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentSheet(
                 isPresented: $showAttachmentSheet,
-                onSelectMessagesLocalFile: { showFileImporter = true },
-                onSelectGitHubTo: { inputText += " [GitHub 链接] " },
+                onSelectLocalFile: { showFileImporter = true },
+                onSelectGitHub: { inputText += " [GitHub 链接] " },
                 onSelectWeb: { inputText += " [网页链接] " }
             )
         }
@@ -290,7 +286,7 @@ struct ChatView: View {
             self.messages = finalMessages
             self.streamingMessage = nil
             self.isLoading = false
-            saveStore()
+            saveMessagesToStore()
         } catch {
             if !buffer.isEmpty {
                 self.messages.append(ChatMessage(role: "assistant", content: buffer + "\n\n[网络中断，已保存部分内容]"))
@@ -373,8 +369,7 @@ struct MessageBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                if message.role }
- == "user" {
+                if message.role == "user" {
                     Spacer()
                     Text(message.content)
                         .padding(12).background(Color.blue).foregroundColor(.white)
@@ -386,7 +381,8 @@ struct MessageBubble: View {
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     Spacer()
                 }
-                       
+            }
+            
             if message.role == "assistant" && message.type == "text" && !message.content.isEmpty {
                 HStack(spacing: 24) {
                     Button(action: { UIPasteboard.general.string = message.content }) {
