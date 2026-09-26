@@ -16,14 +16,11 @@ struct ChatView: View {
     @State private var showFileImporter = false
     @State private var fileImportError: String? = nil
     
-    // 流式渲染专用的临时消息，避免频繁重绘整个 messages 数组
     @State private var streamingMessage: ChatMessage? = nil
-    
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            // MARK: - 消息列表 / 空状态
             ScrollViewReader { proxy in
                 ScrollView {
                     if messages.isEmpty && streamingMessage == nil {
@@ -32,53 +29,45 @@ struct ChatView: View {
                                 .font(.system(size: 60))
                                 .foregroundColor(.blue.opacity(0.8))
                                 .padding(.top, 120)
-                            
                             Text("今天要在 \(projectContext ?? "沙箱") 里写点什么？")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                            
+                                .font(.title3).foregroundColor(.primary)
                             Text("或者让我帮你重构、修 Bug、看 GitHub 源码")
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                                .font(.caption).foregroundColor(.gray)
                         }
                         .padding(.top, 40)
                     } else {
                         LazyVStack(alignment: .leading, spacing: 16) {
-                            // 历史消息
-                            ForEach(messages) { msg in
-                                MessageBubble(message: msg, onRegenerate: {
-                                    regenerateLastResponse()
-                                }).id(msg.id)
+                            // ✨ 核心：将消息分组，连续的工具调用会被打包成一个思考块
+                            ForEach(groupedMessages) { group in
+                                switch group {
+                                case .single(let msg):
+                                    MessageBubble(message: msg, onRegenerate: {
+                                        regenerateLastResponse()
+                                    }).id(msg.id)
+                                case .thinking(let msgs):
+                                    ThinkingBlockView(messages: msgs).id(group.id)
+                                }
                             }
                             
-                            // 流式消息（独立渲染）
                             if let streamMsg = streamingMessage {
                                 MessageBubble(message: streamMsg).id(streamMsg.id)
                             } else if isLoading {
                                 HStack(spacing: 8) {
                                     ProgressView().scaleEffect(0.8)
-                                    Text("思考中...")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
+                                    Text("思考中...").font(.caption).foregroundColor(.gray)
                                     Spacer()
-                                }
-                                .padding(.horizontal)
-                                .id("loading_indicator")
+                                }.padding(.horizontal)
                             }
                         }
                         .padding()
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onTapGesture {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
-                // 流式内容更新时自动滚动
                 .onChange(of: streamingMessage?.content) { _ in
                     if let streamId = streamingMessage?.id {
                         DispatchQueue.main.async {
@@ -88,12 +77,10 @@ struct ChatView: View {
                 }
             }
             
-            // MARK: - 底部输入区
+            // 底部输入区
             VStack(spacing: 0) {
                 Divider().background(Color.gray.opacity(0.2))
-                
                 HStack(alignment: .bottom, spacing: 12) {
-                    // + 号附件按钮
                     Button(action: { showAttachmentSheet = true }) {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .bold))
@@ -101,19 +88,14 @@ struct ChatView: View {
                             .frame(width: 38, height: 38)
                             .background(Color(UIColor.tertiarySystemFill))
                             .clipShape(Circle())
-                    }
-                    .padding(.bottom, 2)
+                    }.padding(.bottom, 2)
                     
-                    // 胶囊输入框
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("输入指令...", text: $inputText, axis: .vertical)
                             .lineLimit(1...6)
-                            .padding(.vertical, 10)
-                            .padding(.leading, 8)
-                            .foregroundColor(.primary)
+                            .padding(.vertical, 10).padding(.leading, 8)
                             .focused($isInputFocused)
                         
-                        // 发送按钮
                         Button(action: {
                             let text = inputText
                             inputText = ""
@@ -128,23 +110,16 @@ struct ChatView: View {
                                 .clipShape(Circle())
                         }
                         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                        .padding(.trailing, 4)
-                        .padding(.bottom, 4)
+                        .padding(.trailing, 4).padding(.bottom, 4)
                     }
                     .padding(.horizontal, 6)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                
-                Text("内容由 AI 生成")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
-                    .padding(.bottom, 8)
-            }
-            .background(Color.black)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                Text("内容由 AI 生成").font(.system(size: 10)).foregroundColor(.gray).padding(.bottom, 8)
+            }.background(Color.black)
         }
         .background(Color.black.ignoresSafeArea())
         .navigationTitle(projectContext ?? "PocketCode")
@@ -152,12 +127,9 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: { showSidebar.toggle() }) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.primary)
+                    Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
                 }
             }
-            
             ToolbarItem(placement: .principal) {
                 Menu {
                     Button("DeepSeek Chat") {}
@@ -167,23 +139,17 @@ struct ChatView: View {
                         Text("PocketCode AI").font(.subheadline.weight(.semibold))
                         Image(systemName: "chevron.down").font(.caption2)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Color(UIColor.tertiarySystemFill))
                     .clipShape(Capsule())
                 }
             }
-            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    if let pid = projectId {
-                        _ = store.createSession(projectId: pid, title: "新会话")
-                    } else {
-                        messages.removeAll()
-                    }
+                    if let pid = projectId { _ = store.createSession(projectId: pid, title: "新会话") }
+                    else { messages.removeAll() }
                 }) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 18))
+                    Image(systemName: "square.and.pencil").font(.system(size: 18))
                 }
             }
         }
@@ -196,18 +162,11 @@ struct ChatView: View {
                                 Text(session.title)
                             }
                         }
-                    } else {
-                        Text("暂无历史会话").foregroundColor(.gray)
-                    }
+                    } else { Text("暂无历史会话").foregroundColor(.gray) }
                 }
                 .navigationTitle("会话历史")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("完成") { showSidebar = false }
-                    }
-                }
-            }
-            .preferredColorScheme(.dark)
+                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { showSidebar = false } } }
+            }.preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentSheet(
@@ -217,39 +176,62 @@ struct ChatView: View {
                 onSelectWeb: { inputText += " [网页链接] " }
             )
         }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.plainText, .sourceCode, .data],
-            allowsMultipleSelection: false
-        ) { result in
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.plainText, .sourceCode, .data], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
                 do {
                     let content = try String(contentsOf: url, encoding: .utf8)
-                    let filename = url.lastPathComponent
-                    let vfsPath = "uploads/\(filename)"
+                    let vfsPath = "uploads/\(url.lastPathComponent)"
                     try VirtualFileSystem.shared.writeFile(vfsPath, content: content)
                     inputText += "【我上传了文件：\(vfsPath)，请读取并分析】"
-                } catch {
-                    fileImportError = "读取文件失败: \(error.localizedDescription)"
-                }
-            case .failure(let error):
-                fileImportError = "选择文件失败: \(error.localizedDescription)"
+                } catch { fileImportError = "读取文件失败: \(error.localizedDescription)" }
+            case .failure(let error): fileImportError = "选择文件失败: \(error.localizedDescription)"
             }
         }
         .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
             Button("好") { fileImportError = nil }
-        }, message: {
-            Text(fileImportError ?? "")
-        })
+        }, message: { Text(fileImportError ?? "") })
         .onAppear { loadMessagesFromStore() }
     }
     
-    // MARK: - 持久化逻辑
+    // MARK: - 消息分组逻辑（核心）
+    enum MessageGroup: Identifiable {
+        case single(ChatMessage)
+        case thinking([ChatMessage])
+        
+        var id: UUID {
+            switch self {
+            case .single(let msg): return msg.id
+            case .thinking(let msgs): return msgs.first?.id ?? UUID()
+            }
+        }
+    }
+    
+    var groupedMessages: [MessageGroup] {
+        var groups: [MessageGroup] = []
+        var currentThinking: [ChatMessage] = []
+        
+        for msg in messages {
+            if msg.type == "thinking" {
+                currentThinking.append(msg)
+            } else {
+                if !currentThinking.isEmpty {
+                    groups.append(.thinking(currentThinking))
+                    currentThinking = []
+                }
+                groups.append(.single(msg))
+            }
+        }
+        if !currentThinking.isEmpty {
+            groups.append(.thinking(currentThinking))
+        }
+        return groups
+    }
+    
+    // MARK: - 持久化与发送逻辑
     private func loadMessagesFromStore() {
-        guard let pid = projectId, let sid = sessionId,
-              let session = store.getSession(projectId: pid, sessionId: sid) else { return }
+        guard let pid = projectId, let sid = sessionId, let session = store.getSession(projectId: pid, sessionId: sid) else { return }
         messages = session.messages
     }
     
@@ -258,11 +240,9 @@ struct ChatView: View {
         store.updateSessionMessages(projectId: pid, sessionId: sid, messages: messages)
     }
     
-    // MARK: - 发送消息（带节流的流式打字机 + 断网保护）
     @MainActor
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
-        
         messages.append(ChatMessage(role: "user", content: text))
         isLoading = true
         saveMessagesToStore()
@@ -276,7 +256,6 @@ struct ChatView: View {
         do {
             let finalMessages = try await AgentLoop.shared.run(initialMessages: messages) { token in
                 buffer += token
-                // 节流：每 300ms 更新一次 UI，避免把手机卡死
                 if Date().timeIntervalSince(lastUpdate) > 0.3 {
                     let currentText = buffer
                     lastUpdate = Date()
@@ -287,14 +266,11 @@ struct ChatView: View {
                     }
                 }
             }
-            
             self.messages = finalMessages
             self.streamingMessage = nil
             self.isLoading = false
             saveMessagesToStore()
-            
         } catch {
-            // 断网保护：把已经收到的部分内容保存下来
             if !buffer.isEmpty {
                 self.messages.append(ChatMessage(role: "assistant", content: buffer + "\n\n[网络中断，已保存部分内容]"))
             }
@@ -305,31 +281,84 @@ struct ChatView: View {
         }
     }
     
-    // MARK: - 重新生成最后一条 AI 回复
     @MainActor
     private func regenerateLastResponse() {
-        // 1. 找到最后一条用户消息的内容
         guard let lastUserMsg = messages.last(where: { $0.role == "user" }) else { return }
-        
-        // 2. 移除最后一条 AI 消息（如果有）
-        if messages.last?.role == "assistant" {
-            messages.removeLast()
-        }
-        
-        // 3. 移除最后一条用户消息（因为 sendMessage 会重新加进来）
-        if let lastIndex = messages.lastIndex(where: { $0.role == "user" }) {
-            messages.remove(at: lastIndex)
-        }
-        
-        // 4. 重新发送
+        if messages.last?.role == "assistant" { messages.removeLast() }
+        if let lastIndex = messages.lastIndex(where: { $0.role == "user" }) { messages.remove(at: lastIndex) }
         Task { await sendMessage(lastUserMsg.content) }
+    }
+}
+
+// MARK: - DeepSeek 风格的可折叠思考块
+struct ThinkingBlockView: View {
+    let messages: [ChatMessage]
+    @State private var isExpanded = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // 头部：点击展开/折叠
+            Button(action: { withAnimation { isExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 13))
+                    Text("已深度思考 (\(messages.count) 步)")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .foregroundColor(.gray)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            
+            // 展开后的工具步骤
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(messages) { msg in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "wrench.and.screwdriver.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.blue)
+                                .padding(.top, 2)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("调用工具: \(msg.toolName ?? "未知")")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.gray)
+                                if let args = msg.toolArgs, !args.isEmpty {
+                                    Text(args)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.gray.opacity(0.8))
+                                        .lineLimit(3)
+                                        .padding(6)
+                                        .background(Color.black.opacity(0.3))
+                                        .cornerRadius(6)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 12)
+                .overlay(
+                    Rectangle().frame(width: 1).foregroundColor(.gray.opacity(0.3)),
+                    alignment: .leading
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(12)
+        .background(Color(UIColor.tertiarySystemFill))
+        .cornerRadius(12)
     }
 }
 
 // MARK: - 消息气泡
 struct MessageBubble: View {
     let message: ChatMessage
-    var onRegenerate: (() -> Void)? = nil // 重新生成的回调
+    var onRegenerate: (() -> Void)? = nil
     
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -337,96 +366,51 @@ struct MessageBubble: View {
                 if message.role == "user" {
                     Spacer()
                     Text(message.content)
-                        .padding(12)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .padding(12).background(Color.blue).foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .textSelection(.enabled)
-                } else if message.type == "tool_call" {
-                    // 工具调用卡片
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "wrench.and.screwdriver.fill")
-                                .font(.system(size: 12)).foregroundColor(.blue)
-                            Text("调用工具: \(message.toolName ?? "未知")")
-                                .font(.system(size: 13, weight: .medium)).foregroundColor(.blue)
-                        }
-                        if let args = message.toolArgs, !args.isEmpty {
-                            Text(args)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.gray)
-                                .lineLimit(3)
-                                .padding(6)
-                                .background(Color.black.opacity(0.3))
-                                .cornerRadius(6)
-                        }
-                    }
-                    .padding(10)
-                    .background(Color(UIColor.tertiarySystemFill))
-                    .cornerRadius(12)
-                    Spacer()
                 } else {
-                    // AI 文本消息：解析 Markdown
                     MessageContentView(content: message.content)
-                        .padding(12)
-                        .background(Color(UIColor.secondarySystemFill))
+                        .padding(12).background(Color(UIColor.secondarySystemFill))
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     Spacer()
                 }
             }
             
-            // ✨ 模仿 DeepSeek 底部操作栏（仅对 AI 的文本消息显示）
             if message.role == "assistant" && message.type == "text" && !message.content.isEmpty {
-                HStack(spacing: 18) {
-                    // 复制按钮
-                    Button(action: {
-                        UIPasteboard.general.string = message.content
-                    }) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
+                HStack(spacing: 24) {
+                    Button(action: { UIPasteboard.general.string = message.content }) {
+                        HStack(spacing: 4) { Image(systemName: "doc.on.doc"); Text("复制") }
+                            .font(.system(size: 12)).foregroundColor(.gray)
                     }
-                    
-                    // 重新生成按钮
                     if let onRegenerate = onRegenerate {
-                        Button(action: {
-                            onRegenerate()
-                        }) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 13))
-                                .foregroundColor(.gray)
+                        Button(action: onRegenerate) {
+                            HStack(spacing: 4) { Image(systemName: "arrow.clockwise"); Text("重试") }
+                                .font(.system(size: 12)).foregroundColor(.gray)
                         }
                     }
-                    
-                    // 分享按钮（使用 iOS 16+ 的原生 ShareLink）
                     ShareLink(item: message.content) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
+                        HStack(spacing: 4) { Image(systemName: "square.and.arrow.up"); Text("分享") }
+                            .font(.system(size: 12)).foregroundColor(.gray)
                     }
-                    
                     Spacer()
-                }
-                .padding(.leading, 12) // 与气泡左侧对齐
-                .padding(.top, 2)
+                }.padding(.leading, 12).padding(.top, 4)
             }
         }
     }
 }
 
-// MARK: - AI 消息内容渲染器（支持代码块 + 纯文本复制）
+// MARK: - AI 消息内容渲染器
 struct MessageContentView: View {
     let content: String
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(parseMarkdown(content)) { block in
                 if block.type == .code {
-                    CodeBlockView(code: block.content, language: block.language ?? "code")
+                    CodeBlockView(code: block.content, language: block.language ?? "code", isClosed: block.isClosed)
                 } else {
                     Text(block.content)
-                        .font(.body)
-                        .foregroundColor(.primary)
+                        .font(.body).foregroundColor(.primary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -434,100 +418,80 @@ struct MessageContentView: View {
         }
     }
     
-    // MARK: - 轻量级 Markdown 解析器
     private func parseMarkdown(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
-        let pattern = "```(\\w*)\\n([\\s\\S]*?)```"
+        let pattern = "```(\\w*)\\n([\\s\\S]*?)(```|$)"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return [MarkdownBlock(type: .text, content: text, language: nil)]
+            return [MarkdownBlock(type: .text, content: text, language: nil, isClosed: true)]
         }
-        
         let nsString = text as NSString
         let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
         
         var lastIndex = 0
         for match in matches {
-            // 1. 代码块之前的文本
             let textRange = NSRange(location: lastIndex, length: match.range.location - lastIndex)
             if textRange.length > 0 {
                 let textContent = nsString.substring(with: textRange).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !textContent.isEmpty {
-                    blocks.append(MarkdownBlock(type: .text, content: textContent, language: nil))
+                    blocks.append(MarkdownBlock(type: .text, content: textContent, language: nil, isClosed: true))
                 }
             }
-            
-            // 2. 代码块本身
             let langRange = match.range(at: 1)
             let codeRange = match.range(at: 2)
-            let language = langRange.length > 0 ? nsString.substring(with: langRange) : ""
+            let endRange = match.range(at: 3)
+            let language = langRange.length > 0 ? nsString.substring(with: langRange) : "code"
             let code = codeRange.length > 0 ? nsString.substring(with: codeRange) : ""
-            
-            blocks.append(MarkdownBlock(type: .code, content: code, language: language.isEmpty ? "code" : language))
+            let isClosed = endRange.length == 3
+            blocks.append(MarkdownBlock(type: .code, content: code, language: language, isClosed: isClosed))
             lastIndex = match.range.location + match.range.length
         }
-        
-        // 3. 最后一个代码块之后的剩余文本
         if lastIndex < nsString.length {
             let remaining = nsString.substring(from: lastIndex).trimmingCharacters(in: .whitespacesAndNewlines)
             if !remaining.isEmpty {
-                blocks.append(MarkdownBlock(type: .text, content: remaining, language: nil))
+                blocks.append(MarkdownBlock(type: .text, content: remaining, language: nil, isClosed: true))
             }
         }
-        
-        return blocks.isEmpty ? [MarkdownBlock(type: .text, content: text, language: nil)] : blocks
+        return blocks.isEmpty ? [MarkdownBlock(type: .text, content: text, language: nil, isClosed: true)] : blocks
     }
 }
 
-// MARK: - 数据模型
 struct MarkdownBlock: Identifiable {
     let id = UUID()
     let type: BlockType
     let content: String
     let language: String?
-    
-    enum BlockType {
-        case text
-        case code
-    }
+    let isClosed: Bool
+    enum BlockType { case text, code }
 }
 
-// MARK: - 仿 DeepSeek 代码卡片
 struct CodeBlockView: View {
     let code: String
     let language: String
-    
+    let isClosed: Bool
     @State private var isCopied = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 顶栏：语言 + 复制按钮
             HStack {
                 Text(language.lowercased())
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.gray)
+                if !isClosed { ProgressView().scaleEffect(0.5).padding(.leading, 4) }
                 Spacer()
                 Button(action: {
                     UIPasteboard.general.string = code
                     withAnimation { isCopied = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { isCopied = false }
-                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { isCopied = false } }
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                         Text(isCopied ? "已复制" : "复制")
-                    }
-                    .font(.system(size: 11))
-                    .foregroundColor(.blue)
+                    }.font(.system(size: 11)).foregroundColor(.blue)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Color.black.opacity(0.4))
-            
             Divider().background(Color.gray.opacity(0.3))
-            
-            // 代码内容区
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
                     .font(.system(size: 13, design: .monospaced))
@@ -538,9 +502,6 @@ struct CodeBlockView: View {
         }
         .background(Color(UIColor.systemGray6).opacity(0.15))
         .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
-        )
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray.opacity(0.3), lineWidth: 0.5))
     }
 }
