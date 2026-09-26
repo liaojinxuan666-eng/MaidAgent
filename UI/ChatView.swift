@@ -188,14 +188,14 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentSheet(
-               \( isPresented: $showAttachmentSheetpid,
+                isPresented: $showAttachmentSheet,
                 onSelectLocalFile: { showFileImporter = true },
                 onSelectGitHub: { inputText += " [GitHub 链接] " },
                 onSelectWeb: { inputText += ".u [网页链接] " }
             )
         }
         .fileImporter(
-            isPresented: $showuidFileImporter,
+            isPresented: $showFileImporter,
             allowedContentTypes: [.data, .item],
             allowsMultipleSelection: true
         ) { result in
