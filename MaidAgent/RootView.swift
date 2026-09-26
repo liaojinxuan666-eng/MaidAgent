@@ -5,17 +5,17 @@ struct RootView: View {
         TabView {
             ChatView()
                 .tabItem {
-                    Label("聊天", systemImage: "message.fill")
+                    Label("会话", systemImage: "message")
                 }
             
             ProjectView()
                 .tabItem {
-                    Label("项目", systemImage: "folder.fill")
+                    Label("项目", systemImage: "folder")
                 }
             
             SettingsView()
                 .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
+                    Label("设置", systemImage: "gearshape")
                 }
         }
         .tint(.blue)
