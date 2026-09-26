@@ -1,58 +1,61 @@
 import SwiftUI
 
 struct ChatView: View {
-    @State private var messages: [ChatMessage] = [
-        ChatMessage(role: "assistant", content: "主人，女仆已就绪。请下达代码修改指令。")
-    ]
+    // 空数组，不预设任何奇怪的角色
+    @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var isLoading = false
-    
-    // 从设置里读取 API Key 和 URL
-    @AppStorage("apiKey") private var apiKey: String = ""
-    @AppStorage("baseURL") private var baseURL: String = "https://api.deepseek.com"
     
     var body: some View {
         NavigationView {
             VStack {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(messages) { msg in
-                                HStack {
-                                    if msg.role == "user" {
-                                        Spacer()
-                                        Text(msg.content)
-                                            .padding(12)
-                                            .background(Color.blue.opacity(0.8))
-                                            .foregroundColor(.white)
-                                            .cornerRadius(16)
-                                    } else {
-                                        Text(msg.content)
-                                            .padding(12)
-                                            .background(Color.gray.opacity(0.3))
-                                            .foregroundColor(.white)
-                                            .cornerRadius(16)
+                if messages.isEmpty {
+                    Spacer()
+                    Text("暂无会话记录")
+                        .foregroundColor(.gray)
+                        .font(.subheadline)
+                    Spacer()
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 12) {
+                                ForEach(messages) { msg in
+                                    HStack {
+                                        if msg.role == "user" {
+                                            Spacer()
+                                            Text(msg.content)
+                                                .padding(12)
+                                                .background(Color.blue.opacity(0.8))
+                                                .foregroundColor(.white)
+                                                .cornerRadius(16)
+                                        } else {
+                                            Text(msg.content)
+                                                .padding(12)
+                                                .background(Color.gray.opacity(0.2))
+                                                .foregroundColor(.white)
+                                                .cornerRadius(16)
+                                            Spacer()
+                                        }
+                                    }
+                                    .id(msg.id)
+                                }
+                                if isLoading {
+                                    HStack {
+                                        ProgressView()
+                                            .padding()
+                                        Text("思考中...")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
                                         Spacer()
                                     }
                                 }
-                                .id(msg.id)
                             }
-                            if isLoading {
-                                HStack {
-                                    ProgressView()
-                                        .padding()
-                                    Text("女仆正在思考...")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                }
-                            }
+                            .padding()
                         }
-                        .padding()
-                    }
-                    .onChange(of: messages.count) { _ in
-                        if let lastId = messages.last?.id {
-                            withAnimation { proxy.scrollTo(lastId, anchor: .bottom) }
+                        .onChange(of: messages.count) { _ in
+                            if let lastId = messages.last?.id {
+                                withAnimation { proxy.scrollTo(lastId, anchor: .bottom) }
+                            }
                         }
                     }
                 }
@@ -78,12 +81,12 @@ struct ChatView: View {
                 .background(Color.black.opacity(0.6))
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("女仆 Agent")
+            .navigationTitle("会话")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
     
-    // 这里预留 API 调用逻辑（先写一个占位，后续填真实的网络请求）
+    // 暂时留空，下一阶段接入真实的网络请求
     func sendMessage(_ text: String) async {
         guard !text.isEmpty else { return }
         await MainActor.run {
@@ -91,11 +94,11 @@ struct ChatView: View {
             isLoading = true
         }
         
-        // TODO: 接入真实的 API 请求（用你设置里填的 baseURL 和 apiKey）
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        // 暂时模拟一个最基础的响应，证明 UI 能动
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
         
         await MainActor.run {
-            messages.append(ChatMessage(role: "assistant", content: "收到指令：\(text)。因为现在的 API 梁子变阻器坏了，我暂时用模拟回复。主人快去设置里配一个新的 API 吧！"))
+            messages.append(ChatMessage(role: "assistant", content: "已收到指令：\(text)"))
             isLoading = false
         }
     }
