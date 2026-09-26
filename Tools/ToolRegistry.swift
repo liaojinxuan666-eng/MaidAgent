@@ -10,21 +10,24 @@ protocol AITool {
 
 final class ToolRegistry {
     static let shared = ToolRegistry()
-    
+
     private var tools: [String: AITool.Type] = [:]
-    
+
     private init() {
-        // 在这里注册所有工具
         register(ReadFileTool.self)
         register(WriteFileTool.self)
         register(ListDirTool.self)
         register(ExecuteCommandTool.self)
+        register(ExtractArchiveTool.self)
+        register(CreateArchiveTool.self)
+        register(ViewTextTool.self)
+        register(SearchFilesTool.self)
     }
-    
+
     func register(_ tool: AITool.Type) {
         tools[tool.name] = tool
     }
-    
+
     /// 生成给 API 用的 tools schema（OpenAI 格式）
     func apiSchema() -> [[String: Any]] {
         return tools.values.map { tool in
@@ -38,7 +41,7 @@ final class ToolRegistry {
             ]
         }
     }
-    
+
     /// AI 触发工具调用时执行
     func execute(name: String, arguments: [String: Any]) async throws -> String {
         guard let tool = tools[name] else {
