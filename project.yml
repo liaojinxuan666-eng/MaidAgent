@@ -4,6 +4,12 @@ options:
   deploymentTarget:
     iOS: "16.0"
   xcodeVersion: "15.4"
+
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.19
+
 targets:
   PocketCode:
     type: application
@@ -14,10 +20,12 @@ targets:
       - UI
       - Tools
       - Agent
+    dependencies:
+      - package: ZIPFoundation
     settings:
       base:
-        PRODUCT_NAME: PocketCode   # <--- 关键：显式指定产品名，避免 XcodeGen 乱拼接
-        PRODUCT_BUNDLE_IDENTIFIER: com.vibecodeing.pocketcode   # <--- 绝对唯一的 ID
+        PRODUCT_NAME: PocketCode
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibecodeing.pocketcode
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
