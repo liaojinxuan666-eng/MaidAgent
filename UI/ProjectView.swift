@@ -6,44 +6,43 @@ struct ProjectView: View {
     @State private var newProjectName = ""
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                if store.projects.isEmpty {
-                    emptyState
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(store.projects) { project in
-                                NavigationLink(destination: ProjectDetailView(projectId: project.id)) {
-                                    ProjectRow(project: project)
-                                }
-                                .buttonStyle(.plain)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            if store.projects.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(store.projects) { project in
+                            NavigationLink(destination: ProjectDetailView(projectId: project.id)) {
+                                ProjectRow(project: project)
                             }
+                            .buttonStyle(.plain)
                         }
-                        .padding()
                     }
+                    .padding()
                 }
             }
-            .navigationTitle("项目")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showCreateSheet = true }) {
-                        Image(systemName: "plus").foregroundColor(.primary)
-                    }
+        }
+        .navigationTitle("项目")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showCreateSheet = true }) {
+                    Image(systemName: "plus").foregroundColor(.primary)
                 }
             }
-            .sheet(isPresented: $showCreateSheet) {
-                CreateProjectSheet(
-                    isPresented: $showCreateSheet,
-                    name: $newProjectName,
-                    onCreate: {
-                        _ = store.createProject(name: newProjectName)
-                        newProjectName = ""
-                    }
-                )
-            }
+        }
+        .sheet(isPresented: $showCreateSheet) {
+            CreateProjectSheet(
+                isPresented: $showCreateSheet,
+                name: $newProjectName,
+                onCreate: {
+                    _ = store.createProject(name: newProjectName)
+                    newProjectName = ""
+                }
+            )
         }
     }
     
@@ -60,10 +59,8 @@ struct ProjectView: View {
                 .foregroundColor(.gray)
             Button(action: { showCreateSheet = true }) {
                 Text("新建项目")
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 10)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
+                    .padding(.horizontal, 24).padding(.vertical, 10)
+                    .background(Color.blue).foregroundColor(.white)
                     .clipShape(Capsule())
             }
             .padding(.top, 8)
@@ -77,8 +74,7 @@ struct ProjectRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 20))
-                .foregroundColor(.blue)
+                .font(.system(size: 20)).foregroundColor(.blue)
                 .frame(width: 44, height: 44)
                 .background(Color.blue.opacity(0.15))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -88,15 +84,11 @@ struct ProjectRow: View {
                     .font(.body.weight(.medium))
                     .foregroundColor(.primary)
                 Text("\(project.sessions.count) 个会话")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                    .font(.caption).foregroundColor(.gray)
             }
-            
             Spacer()
-            
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.gray)
+                .font(.caption).foregroundColor(.gray)
         }
         .padding(16)
         .background(Color(UIColor.secondarySystemBackground))
