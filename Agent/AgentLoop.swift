@@ -8,7 +8,7 @@ final class AgentLoop {
     @MainActor
     func run(
         initialMessages: [ChatMessage],
-        onToken: @escaping (String) -> Void // 👈 新增：每次收到字就回调
+        onToken: @escaping (String) -> Void
     ) async throws -> [ChatMessage] {
         var messages = initialMessages
         var apiMessages: [[String: Any]] = [["role": "system", "content": systemPrompt]]
@@ -20,25 +20,49 @@ final class AgentLoop {
             let toolsSchema = ToolRegistry.shared.apiSchema()
             
             var fullContent = ""
+            var receivedToolCalls: [[String: Any]] = []
             
-            // 流式接收
-            for try await token in APIClient.shared.chatStream(messages: apiMessages, tools: toolsSchema) {
-                fullContent += token
-                onToken(token) // 通知 UI 刷新
+            for try await event in APIClient.shared.chatStream(messages: apiMessages, tools: toolsSchema) {
+                switch event {
+                case .text(let token):
+                    fullContent += token
+                    onToken(token)
+                case .toolCalls(let calls):
+                    receivedToolCalls = calls
+                case .done:
+                    break
+                }
             }
             
-            // 如果 AI 返回了工具调用，需要重新发起一次非流式请求专门拿工具信息（为了简化，暂时略过复杂的流式工具解析）
-            // 这里提供一个简化版：如果有文本，直接返回文本
+            // 如果 AI 要调用工具
+            if !receivedToolCalls.isEmpty {
+                apiMessages.append(["role": "assistant", "content": fullContent, "tool_calls": receivedToolCalls])
+                for call in receivedToolCalls {
+                    guard let function = call["function"] as? [String: Any],
+                          let toolName = function["name"] as? String,
+                          let argsString = function["arguments"] as? String,
+                          let toolCallId = call["id"] as? String else { continue }
+                    
+                    let argsData = argsString.data(using: .utf8) ?? Data()
+                    let args = (try? JSONSerialization.jsonObject(with: argsData) as? [String: Any]) ?? [:]
+                    
+                    messages.append(ChatMessage(role: "assistant", content: "", type: "tool_call", toolName: toolName, toolArgs: argsString))
+                    
+                    let result = (try? await ToolRegistry.shared.execute(name: toolName, arguments: args)) ?? "工具执行失败"
+                    apiMessages.append(["role": "tool", "tool_call_id": toolCallId, "content": result])
+                }
+                continue // 工具执行完后，让 AI 再跑一轮
+            }
+            
             if !fullContent.isEmpty {
                 messages.append(ChatMessage(role: "assistant", content: fullContent))
                 return messages
             }
             
-            // 如果流式没拿到内容，可能是在调用工具，直接报错退出（第一版限制）
-            messages.append(ChatMessage(role: "assistant", content: "（本次回复未生成文本，可能触发了工具调用，请查看日志）"))
+            messages.append(ChatMessage(role: "assistant", content: "（本次回复未生成有效内容）"))
             return messages
         }
-        messages.append(ChatMessage(role: "assistant", content: "⚠️ 超过最大循环次数。"))
+        messages.append(ChatMessage(role: "assistant", content: "⚠️ 任务超过最大循环次数。"))
         return messages
     }
     
@@ -46,7 +70,7 @@ final class AgentLoop {
         """
         你是 PocketCode，运行在 iOS 上的编程 AI Agent。
         你可以使用工具读写文件、执行命令。
-        当用户要求写代码时，请直接输出代码块。
+        当用户要求写代码时，直接输出代码块或调用 write_file 工具。
         """
     }
 }
