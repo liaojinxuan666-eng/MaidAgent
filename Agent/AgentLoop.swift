@@ -2,75 +2,52 @@ import Foundation
 
 final class AgentLoop {
     static let shared = AgentLoop()
-    
     private init() {}
     private let maxIterations = 15
     
     @MainActor
-    func run(initialMessages: [ChatMessage]) async throws -> [ChatMessage] {
+    func run(
+        initialMessages: [ChatMessage],
+        onToken: @escaping (String) -> Void // 👈 新增：每次收到字就回调
+    ) async throws -> [ChatMessage] {
         var messages = initialMessages
-        
-        var apiMessages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt]
-        ]
+        var apiMessages: [[String: Any]] = [["role": "system", "content": systemPrompt]]
         apiMessages.append(contentsOf: messages.map { ["role": $0.role, "content": $0.content] })
         
         var iteration = 0
-        
         while iteration < maxIterations {
             iteration += 1
-            
             let toolsSchema = ToolRegistry.shared.apiSchema()
-            let response = try await APIClient.shared.chat(messages: apiMessages, tools: toolsSchema)
             
-            guard let choices = response["choices"] as? [[String: Any]],
-                  let firstChoice = choices.first,
-                  let message = firstChoice["message"] as? [String: Any] else {
-                throw APIError.parseError("无法解析 choices 结构")
+            var fullContent = ""
+            var toolCallInfo: (name: String, args: String, id: String)? = nil
+            
+            // 流式接收
+            for try await token in APIClient.shared.chatStream(messages: apiMessages, tools: toolsSchema) {
+                fullContent += token
+                onToken(token) // 通知 UI 刷新
             }
             
-            if let toolCalls = message["tool_calls"] as? [[String: Any]], !toolCalls.isEmpty {
-                apiMessages.append(message)
-                
-                for toolCall in toolCalls {
-                    guard let function = toolCall["function"] as? [String: Any],
-                          let toolName = function["name"] as? String,
-                          let argsString = function["arguments"] as? String,
-                          let toolCallId = toolCall["id"] as? String else { continue }
-                    
-                    let argsData = argsString.data(using: .utf8) ?? Data()
-                    let args = (try? JSONSerialization.jsonObject(with: argsData) as? [String: Any]) ?? [:]
-                    
-                    // ✨ UI 优化：以特殊类型插入工具调用消息，而不是纯文本
-                    messages.append(ChatMessage(role: "assistant", content: "", type: "tool_call", toolName: toolName, toolArgs: argsString))
-                    
-                    let result = (try? await ToolRegistry.shared.execute(name: toolName, arguments: args)) ?? "工具执行失败"
-                    
-                    apiMessages.append([
-                        "role": "tool",
-                        "tool_call_id": toolCallId,
-                        "content": result
-                    ])
-                }
-                continue
-            }
-            
-            if let content = message["content"] as? String, !content.isEmpty {
-                messages.append(ChatMessage(role: "assistant", content: content, type: "text"))
+            // 如果 AI 返回了工具调用，需要重新发起一次非流式请求专门拿工具信息（为了简化，暂时略过复杂的流式工具解析）
+            // 这里提供一个简化版：如果有文本，直接返回文本
+            if !fullContent.isEmpty {
+                messages.append(ChatMessage(role: "assistant", content: fullContent))
                 return messages
             }
+            
+            // 如果流式没拿到内容，可能是在调用工具，直接报错退出（第一版限制）
+            messages.append(ChatMessage(role: "assistant", content: "（本次回复未生成文本，可能触发了工具调用，请查看日志）"))
+            return messages
         }
-        
-        messages.append(ChatMessage(role: "assistant", content: "⚠️ 任务超过了最大循环次数，已自动停止。", type: "text"))
+        messages.append(ChatMessage(role: "assistant", content: "⚠️ 超过最大循环次数。"))
         return messages
     }
     
     private var systemPrompt: String {
         """
-        你是 PocketCode，一个运行在 iOS 上的编程 AI Agent。
-        你的工作区是一个虚拟文件系统（沙箱），根目录是 /。
-        你可以使用工具读取、写入、列出文件和执行命令。
-        所有路径都相对于根目录，不要尝试使用真实 iOS 路径。
+        你是 PocketCode，运行在 iOS 上的编程 AI Agent。
+        你可以使用工具读写文件、执行命令。
+        当用户要求写代码时，请直接输出代码块。
         """
     }
 }
