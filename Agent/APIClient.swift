@@ -58,7 +58,7 @@ final class APIClient {
         request.httpMethod = "POST"
         request.addValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
+        request.timeoutInterval = 1800
         
         var body: [String: Any] = [
             "model": config.model,
