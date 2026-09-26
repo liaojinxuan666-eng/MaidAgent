@@ -1,99 +1,136 @@
 import SwiftUI
 
 struct ProjectView: View {
-    // 每次进这个页面，都去拉取最新的 VFS 根节点
-    @State private var rootNode: VFSNode = VirtualFileSystem.shared.rootNode()
-    @State private var refreshID = UUID() // 用来强制刷新列表
+    @StateObject private var store = ProjectStore.shared
+    @State private var showCreateSheet = false
+    @State private var newProjectName = ""
     
     var body: some View {
         NavigationView {
-            List {
-                if let children = rootNode.children, !children.isEmpty {
-                    ForEach(children.keys.sorted(), id: \.self) { key in
-                        if let node = children[key] {
-                            FileRow(node: node, basePath: "/\(key)")
-                        }
-                    }
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                if store.projects.isEmpty {
+                    emptyState
                 } else {
-                    Text("沙箱工作区为空，去聊天页让 AI 写点代码吧")
-                        .foregroundColor(.gray)
-                        .font(.subheadline)
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(store.projects) { project in
+                                NavigationLink(destination: ProjectDetailView(projectId: project.id)) {
+                                    ProjectRow(project: project)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding()
+                    }
                 }
             }
-            .navigationTitle("沙箱项目")
+            .navigationTitle("项目")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        // 刷新 VFS 状态
-                        rootNode = VirtualFileSystem.shared.rootNode()
-                    }) {
-                        Image(systemName: "arrow.clockwise")
+                    Button(action: { showCreateSheet = true }) {
+                        Image(systemName: "plus").foregroundColor(.primary)
                     }
                 }
             }
+            .sheet(isPresented: $showCreateSheet) {
+                CreateProjectSheet(
+                    isPresented: $showCreateSheet,
+                    name: $newProjectName,
+                    onCreate: {
+                        _ = store.createProject(name: newProjectName)
+                        newProjectName = ""
+                    }
+                )
+            }
+        }
+    }
+    
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 48))
+                .foregroundColor(.gray)
+            Text("创建你的第一个项目")
+                .font(.headline)
+                .foregroundColor(.primary)
+            Text("每个项目有独立的 AI 上下文")
+                .font(.caption)
+                .foregroundColor(.gray)
+            Button(action: { showCreateSheet = true }) {
+                Text("新建项目")
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 10)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 8)
         }
     }
 }
 
-// 统一的行渲染组件（支持文件和目录）
-struct FileRow: View {
-    let node: VFSNode
-    let basePath: String
+struct ProjectRow: View {
+    let project: Project
     
     var body: some View {
-        if node.isDirectory {
-            NavigationLink(destination: DirectoryView(directoryNode: node, basePath: basePath)) {
-                HStack {
-                    Image(systemName: "folder.fill")
-                        .foregroundColor(.blue)
-                    Text(node.name)
-                }
-            }
-        } else {
-            NavigationLink(destination: FileDetailView(fileNode: node)) {
-                HStack {
-                    Image(systemName: "doc.text.fill")
-                        .foregroundColor(.gray)
-                    Text(node.name)
-                }
-            }
-        }
-    }
-}
-
-// 递归目录视图
-struct DirectoryView: View {
-    let directoryNode: VFSNode
-    let basePath: String
-    
-    var body: some View {
-        List {
-            if let children = directoryNode.children, !children.isEmpty {
-                ForEach(children.keys.sorted(), id: \.self) { key in
-                    if let child = children[key] {
-                        FileRow(node: child, basePath: "\(basePath)/\(key)")
-                    }
-                }
-            } else {
-                Text("(空目录)")
+        HStack(spacing: 14) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.blue)
+                .frame(width: 44, height: 44)
+                .background(Color.blue.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.name)
+                    .font(.body.weight(.medium))
+                    .foregroundColor(.primary)
+                Text("\(project.sessions.count) 个会话")
+                    .font(.caption)
                     .foregroundColor(.gray)
             }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.gray)
         }
-        .navigationTitle(directoryNode.name)
+        .padding(16)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 
-// 文件详情（显示代码内容）
-struct FileDetailView: View {
-    let fileNode: VFSNode
+struct CreateProjectSheet: View {
+    @Binding var isPresented: Bool
+    @Binding var name: String
+    var onCreate: () -> Void
     
     var body: some View {
-        ScrollView {
-            Text(fileNode.content ?? "(空文件)")
-                .font(.system(.body, design: .monospaced))
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
+        NavigationView {
+            Form {
+                Section(header: Text("项目名称")) {
+                    TextField("例如：PocketCode 开发", text: $name)
+                }
+            }
+            .navigationTitle("新建项目")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") { isPresented = false }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("创建") {
+                        onCreate()
+                        isPresented = false
+                    }
+                    .disabled(name.isEmpty)
+                }
+            }
         }
-        .navigationTitle(fileNode.name)
+        .preferredColorScheme(.dark)
     }
 }
