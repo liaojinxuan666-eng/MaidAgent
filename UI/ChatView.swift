@@ -194,7 +194,6 @@ struct ChatView: View {
             AttachmentSheet(
                 isPresented: $showAttachmentSheet,
                 onSelectLocalFile: {
-                    // ✨ 关键：先关 Sheet，再弹文件选择器，避免 presentation 冲突
                     showAttachmentSheet = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         showFileImporter = true
@@ -211,20 +210,52 @@ struct ChatView: View {
         ) { result in
             switch result {
             case .success(let urls):
-                // ✨ 关键：在回调内部立即读取 Data，否则 security-scoped URL 权限会失效
-                var collected: [(name: String, data: Data)] = []
-                var failedNames: [String] = []
+                // ⚠️ 立刻开始 security scope 访问（必须在回调线程做）
                 for url in urls {
-                    let needsStop = url.startAccessingSecurityScopedResource()
-                    defer { if needsStop { url.stopAccessingSecurityScopedResource() } }
-                    do {
-                        let data = try Data(contentsOf: url)
-                        collected.append((url.lastPathComponent, data))
-                    } catch {
-                        failedNames.append("\(url.lastPathComponent): \(error.localizedDescription)")
-                    }
+                    _ = url.startAccessingSecurityScopedResource()
                 }
-                Task { @MainActor in
+
+                Task.detached(priority: .userInitiated) {
+                    var collected: [(vfsPath: String, data: Data)] = []
+                    var failedNames: [String] = []
+
+                    for url in urls {
+                        defer { url.stopAccessingSecurityScopedResource() }
+
+                        var isDir: ObjCBool = false
+                        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+                            failedNames.append("\(url.lastPathComponent): 路径不存在")
+                            continue
+                        }
+
+                        if isDir.boolValue {
+                            // 文件夹：递归遍历所有文件
+                            if let enumerator = FileManager.default.enumerator(
+                                at: url,
+                                includingPropertiesForKeys: [.isRegularFileKey],
+                                options: [.skipsHiddenFiles]
+                            ) {
+                                for case let fileURL as URL in enumerator {
+                                    guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                                          values.isRegularFile == true else { continue }
+                                    if let data = try? Data(contentsOf: fileURL) {
+                                        let relative = fileURL.path.replacingOccurrences(of: url.path + "/", with: "")
+                                        let vfsPath = url.lastPathComponent + "/" + relative
+                                        collected.append((vfsPath, data))
+                                    }
+                                }
+                            }
+                        } else {
+                            // 单文件
+                            if let data = try? Data(contentsOf: url) {
+                                collected.append((url.lastPathComponent, data))
+                            } else {
+                                failedNames.append("\(url.lastPathComponent): 读取失败")
+                            }
+                        }
+                    }
+
+                    // 回到主线程更新 UI
                     await processUploadedFiles(collected, failed: failedNames)
                 }
 
@@ -254,23 +285,28 @@ struct ChatView: View {
 
     // MARK: - 把已读取的数据写入 VFS
     @MainActor
-    private func processUploadedFiles(_ files: [(name: String, data: Data)], failed: [String]) async {
+    private func processUploadedFiles(_ files: [(vfsPath: String, data: Data)], failed: [String]) async {
         var uploadedNames: [String] = []
         var allFailed = failed
 
         for file in files {
-            let vfsPath = fileBasePath + "/" + file.name
+            let fullPath = fileBasePath + "/" + file.vfsPath
             do {
-                try VirtualFileSystem.shared.writeFileData(vfsPath, data: file.data)
-                uploadedNames.append(file.name)
+                try VirtualFileSystem.shared.writeFileData(fullPath, data: file.data)
+                uploadedNames.append(file.vfsPath)
             } catch {
-                allFailed.append("\(file.name): \(error.localizedDescription)")
+                allFailed.append("\(file.vfsPath): \(error.localizedDescription)")
             }
         }
 
         if !uploadedNames.isEmpty {
-            let list = uploadedNames.joined(separator: "、")
-            inputText += "【我上传了文件：\(list)（已保存到资料库），请读取并分析】"
+            let summary: String
+            if uploadedNames.count == 1 {
+                summary = uploadedNames[0]
+            } else {
+                summary = "\(uploadedNames[0]) 等 \(uploadedNames.count) 个文件"
+            }
+            inputText += "【我上传了文件：\(summary)（已保存到资料库），请读取并分析】"
         }
         if !allFailed.isEmpty {
             fileImportError = "部分文件上传失败：\n" + allFailed.joined(separator: "\n")
