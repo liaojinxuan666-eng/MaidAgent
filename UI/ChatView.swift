@@ -145,8 +145,11 @@ struct ChatView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
-                        if let pid = projectId { _ = store.createSession(projectId: pid, title: "新会话") }
-                        else { messages.removeAll() }
+                        if let pid = projectId {
+                            _ = store.createSession(projectId: pid, title: "新会话")
+                        } else {
+                            messages.removeAll()
+                        }
                     }) {
                         Image(systemName: "square.and.pencil").font(.system(size: 18))
                     }
@@ -184,73 +187,93 @@ struct ChatView: View {
                         Button("完成") { showSidebar = false }
                     }
                 }
-            }.preferredColorScheme(.dark)
+            }
+            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showAttachmentSheet) {
             AttachmentSheet(
                 isPresented: $showAttachmentSheet,
-                onSelectLocalFile: { showFileImporter = true },
+                onSelectLocalFile: {
+                    // ✨ 关键：先关 Sheet，再弹文件选择器，避免 presentation 冲突
+                    showAttachmentSheet = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showFileImporter = true
+                    }
+                },
                 onSelectGitHub: { inputText += " [GitHub 链接] " },
-                onSelectWeb: { inputText += ".u [网页链接] " }
+                onSelectWeb: { inputText += " [网页链接] " }
             )
         }
         .fileImporter(
             isPresented: $showFileImporter,
-            allowedContentTypes: [.data, .item],
+            allowedContentTypes: [.zip, .plainText, .sourceCode, .image, .pdf, .data, .folder],
             allowsMultipleSelection: true
         ) { result in
             switch result {
             case .success(let urls):
-                Task { await uploadFiles(urls) }
+                // ✨ 关键：在回调内部立即读取 Data，否则 security-scoped URL 权限会失效
+                var collected: [(name: String, data: Data)] = []
+                var failedNames: [String] = []
+                for url in urls {
+                    let needsStop = url.startAccessingSecurityScopedResource()
+                    defer { if needsStop { url.stopAccessingSecurityScopedResource() } }
+                    do {
+                        let data = try Data(contentsOf: url)
+                        collected.append((url.lastPathComponent, data))
+                    } catch {
+                        failedNames.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+                Task { @MainActor in
+                    await processUploadedFiles(collected, failed: failedNames)
+                }
+
             case .failure(let error):
-                fileImportError = "选择文件String失败: \(error.localizedDescription)"
+                fileImportError = "选择文件失败: \(error.localizedDescription)"
             }
         }
-        .alert("文件导入错误", isPresented: .constant(fileImportError != nil), actions: {
+        .alert("文件导入错误", isPresented: Binding(
+            get: { fileImportError != nil },
+            set: { if !$0 { fileImportError = nil } }
+        ), actions: {
             Button("好") { fileImportError = nil }
-        }, message: { Text(fileImportError ?? "") })
+        }, message: {
+            Text(fileImportError ?? "")
+        })
         .onAppear { loadMessagesFromStore() }
     }
 
     // MARK: - 上传路径规则
-    /// 项目会话：/projects/{projectId}/files
-    /// 全局会话：/files
     private var fileBasePath: String {
         if let pid = projectId {
-            return "/projects/)/files"
+            return "/projects/\(pid.uuidString)/files"
         } else {
             return "/files"
         }
     }
 
-    // MARK: - 统一上传通道
-    private func uploadFiles(_ urls: [URL]) async {
+    // MARK: - 把已读取的数据写入 VFS
+    @MainActor
+    private func processUploadedFiles(_ files: [(name: String, data: Data)], failed: [String]) async {
         var uploadedNames: [String] = []
-        var failed: [String] = []
+        var allFailed = failed
 
-        for url in urls {
-            let needsStop = url.startAccessingSecurityScopedResource()
-            defer { if needsStop { url.stopAccessingSecurityScopedResource() } }
-
+        for file in files {
+            let vfsPath = fileBasePath + "/" + file.name
             do {
-                let data = try Data(contentsOf: url)
-                let filename = url.lastPathComponent
-                let vfsPath = fileBasePath + "/" + filename
-                try VirtualFileSystem.shared.writeFileData(vfsPath, data: data)
-                uploadedNames.append(filename)
+                try VirtualFileSystem.shared.writeFileData(vfsPath, data: file.data)
+                uploadedNames.append(file.name)
             } catch {
-                failed.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                allFailed.append("\(file.name): \(error.localizedDescription)")
             }
         }
 
-        await MainActor.run {
-            if !uploadedNames.isEmpty {
-                let list = uploadedNames.joined(separator: "、")
-                inputText += "【我上传了文件：\(list)（已保存到资料库），请读取并分析】"
-            }
-            if !failed.isEmpty {
-                fileImportError = "部分文件上传失败：\n" + failed.joined(separator: "\n")
-            }
+        if !uploadedNames.isEmpty {
+            let list = uploadedNames.joined(separator: "、")
+            inputText += "【我上传了文件：\(list)（已保存到资料库），请读取并分析】"
+        }
+        if !allFailed.isEmpty {
+            fileImportError = "部分文件上传失败：\n" + allFailed.joined(separator: "\n")
         }
     }
 
